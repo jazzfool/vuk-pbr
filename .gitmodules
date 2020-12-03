@@ -1,0 +1,18 @@
+[submodule "ThirdParty/glfw"]
+	path = ThirdParty/glfw
+	url = https://github.com/glfw/glfw
+[submodule "ThirdParty/spdlog"]
+	path = ThirdParty/spdlog
+	url = https://github.com/gabime/spdlog
+[submodule "ThirdParty/vk-bootstrap"]
+	path = ThirdParty/vk-bootstrap
+	url = https://github.com/charles-lunarg/vk-bootstrap
+[submodule "ThirdParty/glm"]
+	path = ThirdParty/glm
+	url = https://github.com/g-truc/glm
+[submodule "ThirdParty/vuk"]
+	path = ThirdParty/vuk
+	url = https://github.com/martty/vuk
+[submodule "ThirdParty/mipgen"]
+	path = ThirdParty/mipgen
+	url = https://github.com/NotAPenguin0/mipgen/
