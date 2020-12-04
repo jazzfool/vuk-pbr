@@ -27,8 +27,9 @@ const vec3 lightColors[1] = vec3[1](
     vec3(0, 0, 0)
 );
 
-//uniform vec3 camPos;
-const vec3 camPos = vec3(0, 0, 3);
+layout (push_constant) uniform PushConstants {
+    vec3 camPos;
+};
 
 const float PI = 3.14159265359;
 // ----------------------------------------------------------------------------
@@ -118,7 +119,10 @@ void main()
 
     // reflectance equation
     vec3 Lo = vec3(0.0);
-    for(int i = 0; i < 1; ++i) 
+
+    // this has been commented out because there are no lights (rely on IBL since it only renders outdoor scenes)
+
+    /*for(int i = 0; i < 1; ++i) 
     {
         // calculate per-light radiance
         vec3 L = normalize(lightPositions[i] - WorldPos);
@@ -152,7 +156,7 @@ void main()
 
         // add to outgoing radiance Lo
         Lo += (kD * albedo / PI + specular) * radiance * NdotL; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
-    }   
+    }*/
     
     // ambient lighting (we now use IBL as the ambient term)
     vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);

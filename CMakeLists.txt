@@ -9,6 +9,11 @@ set(Source
 
     Source/main.cpp
     Source/Resource.cpp
+    Source/Mesh.cpp
+    Source/GfxUtil.cpp
+    Source/STB.cpp
+    Source/Context.cpp
+    Source/Renderer.cpp
 )
 
 set(Resources
