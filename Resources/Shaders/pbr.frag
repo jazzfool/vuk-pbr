@@ -8,23 +8,26 @@ layout (location = 2) in vec3 Normal;
 layout (location = 0) out vec4 FragColor;
 
 // material parameters
-layout (binding = 1) uniform sampler2D albedoMap;
-layout (binding = 2) uniform sampler2D normalMap;
-layout (binding = 3) uniform sampler2D metallicMap;
-layout (binding = 4) uniform sampler2D roughnessMap;
-layout (binding = 5) uniform sampler2D aoMap;
+layout (set = 2, binding = 0) uniform sampler2D albedoMap;
+layout (set = 2, binding = 1) uniform sampler2D normalMap;
+layout (set = 2, binding = 2) uniform sampler2D metallicMap;
+layout (set = 2, binding = 3) uniform sampler2D roughnessMap;
+layout (set = 2, binding = 4) uniform sampler2D aoMap;
 
 // IBL
-layout (binding = 6) uniform samplerCube irradianceMap;
-layout (binding = 7) uniform samplerCube prefilterMap;
-layout (binding = 8) uniform sampler2D brdfLUT;
+layout (set = 0, binding = 1) uniform samplerCube irradianceMap;
+layout (set = 0, binding = 2) uniform samplerCube prefilterMap;
+layout (set = 0, binding = 3) uniform sampler2D brdfLUT;
 
 // lights
 const vec3 lightPositions[1] = vec3[1](
     vec3(0, 0, 0)
 );
+const vec3 lightDirections[1] = vec3[1](
+    vec3(0, -1, 0)
+);
 const vec3 lightColors[1] = vec3[1](
-    vec3(0, 0, 0)
+    vec3(1000, 1000, 1000)
 );
 
 layout (push_constant) uniform PushConstants {
@@ -120,16 +123,17 @@ void main()
     // reflectance equation
     vec3 Lo = vec3(0.0);
 
-    // this has been commented out because there are no lights (rely on IBL since it only renders outdoor scenes)
+    // a single directional light:
 
-    /*for(int i = 0; i < 1; ++i) 
+    for(int i = 0; i < 1; ++i) 
     {
         // calculate per-light radiance
-        vec3 L = normalize(lightPositions[i] - WorldPos);
+        //vec3 L = normalize(lightPositions[i] - WorldPos);
+        vec3 L = normalize(-lightDirections[i]); // light direction
         vec3 H = normalize(V + L);
         float distance = length(lightPositions[i] - WorldPos);
         float attenuation = 1.0 / (distance * distance);
-        vec3 radiance = lightColors[i] * attenuation;
+        vec3 radiance = lightColors[i] /* * attenuation*/; // no attenuation for directional lights
 
         // Cook-Torrance BRDF
         float NDF = DistributionGGX(N, H, roughness);   
@@ -156,7 +160,7 @@ void main()
 
         // add to outgoing radiance Lo
         Lo += (kD * albedo / PI + specular) * radiance * NdotL; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
-    }*/
+    }
     
     // ambient lighting (we now use IBL as the ambient term)
     vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);

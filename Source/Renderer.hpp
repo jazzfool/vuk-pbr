@@ -2,6 +2,8 @@
 
 #include "Types.hpp"
 #include "Mesh.hpp"
+#include "Scene.hpp"
+#include "Material.hpp"
 
 #include <glm/vec3.hpp>
 #include <vuk/Image.hpp>
@@ -20,7 +22,9 @@ class Renderer {
   private:
 	vuk::RenderGraph render_graph(vuk::PerThreadContext& ptc);
 
-	Context* m_ctxt;
+	struct Context* m_ctxt;
+
+	Scene m_scene;
 
 	f32 m_angle;
 	f64 m_last_x;
@@ -31,17 +35,13 @@ class Renderer {
 	glm::vec3 m_cam_front;
 	glm::vec3 m_cam_up;
 
+	vuk::Buffer m_transform_buffer;
+
 	Mesh m_sphere;
 	Mesh m_cube;
 	Mesh m_quad;
 
 	vuk::Texture m_hdr_texture;
-
-	vuk::Texture m_albedo_texture;
-	vuk::Texture m_metallic_texture;
-	vuk::Texture m_normal_texture;
-	vuk::Texture m_roughness_texture;
-	vuk::Texture m_ao_texture;
 
 	std::pair<vuk::Texture, vuk::SamplerCreateInfo> m_env_cubemap;
 	std::pair<vuk::Texture, vuk::SamplerCreateInfo> m_irradiance_cubemap;

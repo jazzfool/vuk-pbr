@@ -1,5 +1,24 @@
 #include "Mesh.hpp"
 
+#include "Resource.hpp"
+#include "Util.hpp"
+
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/hash.hpp>
+#include <vuk/Context.hpp>
+#include <tiny_obj_loader.h>
+#include <spdlog/spdlog.h>
+
+bool Vertex::operator==(const Vertex& rhs) const {
+	return position == rhs.position && normal == rhs.normal && tex_coord == rhs.tex_coord;
+}
+
+std::size_t VertexHash::operator()(const Vertex& v) const noexcept {
+	std::size_t h = 0;
+	hash_combine(h, v.position, v.normal, v.tex_coord);
+	return h;
+}
+
 Mesh generate_quad() {
 	return Mesh(
 		std::vector<Vertex>{
@@ -42,46 +61,75 @@ Mesh generate_cube() {
 	// clang-format on
 }
 
-Mesh generate_sphere() {
-	static constexpr u32 X_SEGMENTS = 64;
-	static constexpr u32 Y_SEGMENTS = 64;
-	static constexpr f32 PI = 3.14159265359;
+Mesh load_obj(std::string_view path) {
+	auto res = get_resource(path);
 
-	std::vector<Vertex> vertices;
-	std::vector<u32> indices;
+	tinyobj::attrib_t attrib;
+	std::vector<tinyobj::shape_t> shapes;
+	IMemoryStream ins{reinterpret_cast<const char*>(res.data), res.size};
 
-	for (u32 y = 0; y <= Y_SEGMENTS; ++y) {
-		for (u32 x = 0; x <= X_SEGMENTS; ++x) {
-			f32 xSegment = (f32)x / (f32)X_SEGMENTS;
-			f32 ySegment = (f32)y / (f32)Y_SEGMENTS;
-			f32 xPos = std::cos(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
-			f32 yPos = std::cos(ySegment * PI);
-			f32 zPos = std::sin(xSegment * 2.0f * PI) * std::sin(ySegment * PI);
+	if (!tinyobj::LoadObj(&attrib, &shapes, nullptr, nullptr, nullptr, &ins, nullptr)) {
+		spdlog::error("failed to load OBJ at {}", path);
+	}
 
+	Mesh mesh;
+
+	std::unordered_map<Vertex, u32, VertexHash> unique_verts;
+
+	for (const auto& shape : shapes) {
+		for (const auto& index : shape.mesh.indices) {
 			Vertex vert;
-			vert.position = glm::vec3(xPos, yPos, zPos);
-			vert.texCoord = glm::vec2(xSegment, ySegment);
-			vert.normal = glm::vec3(xPos, yPos, zPos);
 
-			vertices.push_back(vert);
+			vert.position.x = attrib.vertices[3 * index.vertex_index];
+			vert.position.y = attrib.vertices[3 * index.vertex_index + 1];
+			vert.position.z = attrib.vertices[3 * index.vertex_index + 2];
+
+			vert.normal.x = attrib.normals[3 * index.normal_index];
+			vert.normal.y = attrib.normals[3 * index.normal_index + 1];
+			vert.normal.z = attrib.normals[3 * index.normal_index + 2];
+
+			vert.tex_coord.x = attrib.texcoords[2 * index.texcoord_index];
+			vert.tex_coord.y = 1.f - attrib.texcoords[2 * index.texcoord_index + 1];
+
+			if (!unique_verts.contains(vert)) {
+				unique_verts[vert] = static_cast<u32>(mesh.first.size());
+				mesh.first.push_back(vert);
+			}
+
+			mesh.second.push_back(unique_verts[vert]);
 		}
 	}
 
-	bool oddRow = false;
-	for (u32 y = 0; y < Y_SEGMENTS; ++y) {
-		if (!oddRow) {
-			for (u32 x = 0; x <= X_SEGMENTS; ++x) {
-				indices.push_back(y * (X_SEGMENTS + 1) + x);
-				indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
-			}
-		} else {
-			for (i32 x = X_SEGMENTS; x >= 0; --x) {
-				indices.push_back((y + 1) * (X_SEGMENTS + 1) + x);
-				indices.push_back(y * (X_SEGMENTS + 1) + x);
-			}
-		}
-		oddRow = !oddRow;
-	}
+	return mesh;
+}
 
-	return std::make_pair(vertices, indices);
+void RenderMesh::upload(vuk::PerThreadContext& ptc) {
+	auto [bverts, _s1] = ptc.create_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer, std::span(&mesh.first[0], mesh.first.size()));
+	verts = std::move(bverts);
+	auto [binds, _s2] = ptc.create_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer, std::span(&mesh.second[0], mesh.second.size()));
+	inds = std::move(binds);
+}
+
+TransformComponent::TransformComponent() : matrix{1} {
+}
+
+TransformComponent& TransformComponent::translate(const glm::vec3& offset) {
+	matrix = glm::translate(matrix, offset);
+	return *this;
+}
+
+TransformComponent& TransformComponent::scale(const glm::vec3& scale) {
+	matrix = glm::scale(matrix, scale);
+	return *this;
+}
+
+TransformComponent& TransformComponent::rotate(const glm::quat& rot) {
+	matrix *= glm::mat4_cast(rot);
+	return *this;
+}
+
+DecomposedTransform TransformComponent::decompose() const {
+	DecomposedTransform dt = {};
+	glm::decompose(matrix, dt.scale, dt.rotation, dt.translation, dt.skew, dt.perspective);
+	return dt;
 }

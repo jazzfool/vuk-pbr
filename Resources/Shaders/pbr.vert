@@ -2,16 +2,19 @@
 #pragma shader_stage(vertex)
 
 layout (location = 0) in vec3 aPos;
-layout (location = 2) in vec2 aTexCoords;
 layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoords;
 
 layout (location = 0) out vec2 TexCoords;
 layout (location = 1) out vec3 WorldPos;
 layout (location = 2) out vec3 Normal;
 
-layout(binding = 0) uniform Uniforms {
+layout(set = 0, binding = 0) uniform Uniforms {
     mat4 projection;
     mat4 view;
+};
+
+layout(set = 1, binding = 0) uniform Object {
     mat4 model;
 };
 

@@ -11,6 +11,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <GLFW/glfw3.h>
+#include <spdlog/spdlog.h>
 
 std::optional<Renderer> Renderer::create(Context& ctxt) {
 	Renderer renderer;
@@ -25,10 +26,10 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	renderer.m_yaw = 0.f;
 
 	renderer.m_cam_pos = glm::vec3(0, 0, 3);
-	renderer.m_cam_front = glm::vec3(0, 0, 0);
+	renderer.m_cam_front = glm::vec3(0, 0, -3);
 	renderer.m_cam_up = glm::vec3(0, 1, 0);
 
-	renderer.m_sphere = generate_sphere();
+	renderer.m_sphere = load_obj("Resources/Meshes/Sphere.obj");
 	renderer.m_cube = generate_cube();
 	renderer.m_quad = generate_quad();
 
@@ -62,13 +63,28 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	auto ifc = ctxt.vuk_context->begin();
 	auto ptc = ifc.begin();
 
+	// allocate a large buffer to dump all the model matrices in; this will be used a dynamic UBO for drawing by offsetting into it
+
+	renderer.m_transform_buffer = ctxt.vuk_context->allocate_buffer(
+		vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eUniformBuffer | vuk::BufferUsageFlagBits::eTransferDst, std::pow(2, 18), sizeof(glm::mat4));
+
 	// load the textures that are going to be used later
 
-	renderer.m_albedo_texture = gfx_util::load_mipmapped_texture("Resources/Textures/rust_albedo.jpg", ptc);
-	renderer.m_metallic_texture = gfx_util::load_mipmapped_texture("Resources/Textures/rust_metallic.png", ptc, false);
-	renderer.m_normal_texture = gfx_util::load_mipmapped_texture("Resources/Textures/rust_normal.jpg", ptc, false);
-	renderer.m_roughness_texture = gfx_util::load_mipmapped_texture("Resources/Textures/rust_roughness.jpg", ptc, true);
-	renderer.m_ao_texture = gfx_util::load_mipmapped_texture("Resources/Textures/rust_ao.jpg", ptc, false);
+	renderer.m_scene.textures.insert("Iron.Albedo", gfx_util::load_mipmapped_texture("Resources/Textures/rust_albedo.jpg", ptc));
+	renderer.m_scene.textures.insert("Iron.Metallic", gfx_util::load_mipmapped_texture("Resources/Textures/rust_metallic.png", ptc));
+	renderer.m_scene.textures.insert("Iron.Normal", gfx_util::load_mipmapped_texture("Resources/Textures/rust_normal.jpg", ptc));
+	renderer.m_scene.textures.insert("Iron.Roughness", gfx_util::load_mipmapped_texture("Resources/Textures/rust_roughness.jpg", ptc));
+	renderer.m_scene.textures.insert("Iron.AO", gfx_util::load_mipmapped_texture("Resources/Textures/rust_ao.jpg", ptc));
+
+	RenderMesh sphere_rm;
+	sphere_rm.mesh = renderer.m_sphere;
+	sphere_rm.upload(ptc);
+	renderer.m_scene.meshes.insert("Sphere", std::move(sphere_rm));
+
+	RenderMesh cube_rm;
+	cube_rm.mesh = renderer.m_cube;
+	cube_rm.upload(ptc);
+	renderer.m_scene.meshes.insert("Cube", std::move(cube_rm));
 
 	renderer.m_hdr_texture = gfx_util::load_cubemap_texture("Resources/Textures/forest_slope_1k.hdr", ptc);
 
@@ -344,6 +360,25 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 		}
 	}
 
+	auto entity = renderer.m_scene.registry.create();
+	renderer.m_scene.registry.emplace<MeshComponent>(entity, MeshCache::view("Sphere"),
+													 Material{.albedo = TextureCache::view("Iron.Albedo"),
+															  .metallic = TextureCache::view("Iron.Metallic"),
+															  .roughness = TextureCache::view("Iron.Roughness"),
+															  .normal = TextureCache::view("Iron.Normal"),
+															  .ao = TextureCache::view("Iron.AO")});
+	renderer.m_scene.registry.emplace<TransformComponent>(entity, TransformComponent{}.rotate(glm::angleAxis(glm::degrees(90.f), glm::vec3(1, 0, 0))));
+
+	auto entity2 = renderer.m_scene.registry.create();
+	renderer.m_scene.registry.emplace<MeshComponent>(entity2, MeshCache::view("Cube"),
+													 Material{.albedo = TextureCache::view("Iron.Albedo"),
+															  .metallic = TextureCache::view("Iron.Metallic"),
+															  .roughness = TextureCache::view("Iron.Roughness"),
+															  .normal = TextureCache::view("Iron.Normal"),
+															  .ao = TextureCache::view("Iron.AO")});
+	renderer.m_scene.registry.emplace<TransformComponent>(
+		entity2, TransformComponent{}.translate({10, 5, 5}).rotate(glm::angleAxis(glm::degrees(90.f), glm::vec3(1, 0, 0))));
+
 	return renderer;
 }
 
@@ -375,60 +410,63 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 	struct Uniforms {
 		glm::mat4 projection;
 		glm::mat4 view;
-		glm::mat4 model;
 	};
-
-	auto [bverts, stub1] =
-		ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer, std::span(&m_sphere.first[0], m_sphere.first.size()));
-	auto verts = std::move(bverts);
-	auto [binds, stub2] =
-		ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer, std::span(&m_sphere.second[0], m_sphere.second.size()));
-	auto inds = std::move(binds);
 
 	Uniforms uniforms;
 
-	uniforms.projection = glm::perspective(glm::degrees(60.f), 800.f / 600.f, 0.1f, 10.f);
+	uniforms.projection = glm::perspective(glm::degrees(60.f), 800.f / 600.f, 0.1f, 1000.f);
 	uniforms.projection[1][1] *= -1.f; // flip the projection so it's the right way up
 	uniforms.view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
-	uniforms.model = static_cast<glm::mat4>(glm::angleAxis(glm::radians(m_angle), glm::vec3(0.f, 1.f, 0.f))) *
-					 static_cast<glm::mat4>(glm::angleAxis(glm::degrees(90.f), glm::vec3(1.f, 0.f, 0.f)));
 
 	auto [bubo, stub3] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span(&uniforms, 1));
 	auto ubo = bubo;
+
+	auto meshes_view = m_scene.registry.view<MeshComponent, TransformComponent>();
+
+	std::vector<glm::mat4> transforms;
+	transforms.reserve(meshes_view.size_hint());
+	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) { transforms.push_back(transform.matrix); });
+	ptc.upload(m_transform_buffer, std::span{transforms});
+
 	ptc.wait_all_transfers();
 
-	const u32 mips = (u32)std::min(std::log2f((f32)m_albedo_texture.extent.width), std::log2f((f32)m_albedo_texture.extent.height));
-
-	vuk::SamplerCreateInfo map_sampler{.magFilter = vuk::Filter::eLinear,
-									   .minFilter = vuk::Filter::eLinear,
-									   .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
-									   .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
-									   .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
-									   .anisotropyEnable = VK_TRUE,
-									   .maxAnisotropy = 16.f,
-									   .minLod = 0.f,
-									   .maxLod = (f32)mips};
+	const vuk::SamplerCreateInfo map_sampler{.magFilter = vuk::Filter::eLinear,
+											 .minFilter = vuk::Filter::eLinear,
+											 .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
+											 .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
+											 .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
+											 .anisotropyEnable = VK_TRUE,
+											 .maxAnisotropy = 16.f,
+											 .minLod = 0.f,
+											 .maxLod = 16.f};
 
 	vuk::RenderGraph rg;
 	rg.add_pass({.resources = {"pbr_msaa"_image(vuk::eColorWrite), "pbr_depth"_image(vuk::eDepthStencilRW)},
-				 .execute = [map_sampler, verts, ubo, inds, this](vuk::CommandBuffer& cbuf) {
+				 .execute = [meshes_view, map_sampler, ubo, this](vuk::CommandBuffer& cbuf) {
 					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 						 .set_scissor(0, vuk::Rect2D::framebuffer())
-						 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleStrip)
-						 .bind_vertex_buffer(0, verts, 0, vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32Sfloat})
-						 .bind_index_buffer(inds, vuk::IndexType::eUint32)
+						 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
 						 .push_constants(vuk::ShaderStageFlagBits::eFragment, 0, m_cam_pos)
-						 .bind_sampled_image(0, 1, m_albedo_texture, map_sampler)
-						 .bind_sampled_image(0, 2, m_normal_texture, map_sampler)
-						 .bind_sampled_image(0, 3, m_metallic_texture, map_sampler)
-						 .bind_sampled_image(0, 4, m_roughness_texture, map_sampler)
-						 .bind_sampled_image(0, 5, m_ao_texture, map_sampler)
-						 .bind_sampled_image(0, 6, *m_irradiance_cubemap_iv, m_irradiance_cubemap.second)
-						 .bind_sampled_image(0, 7, *m_prefilter_cubemap_iv, m_prefilter_cubemap.second)
-						 .bind_sampled_image(0, 8, m_brdf_lut.first, m_brdf_lut.second)
+						 .bind_sampled_image(0, 1, *m_irradiance_cubemap_iv, m_irradiance_cubemap.second)
+						 .bind_sampled_image(0, 2, *m_prefilter_cubemap_iv, m_prefilter_cubemap.second)
+						 .bind_sampled_image(0, 3, m_brdf_lut.first, m_brdf_lut.second)
 						 .bind_graphics_pipeline("pbr")
 						 .bind_uniform_buffer(0, 0, ubo);
-					 cbuf.draw_indexed(m_sphere.second.size(), 1, 0, 0, 0);
+
+					 u64 offset = 0;
+					 meshes_view.each([&](MeshComponent& mesh_comp, TransformComponent& transform_comp) {
+						 cbuf.bind_vertex_buffer(0, *m_scene.meshes.get(mesh_comp.mesh).verts, 0,
+												 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32Sfloat})
+							 .bind_index_buffer(*m_scene.meshes.get(mesh_comp.mesh).inds, vuk::IndexType::eUint32)
+							 .bind_sampled_image(2, 0, m_scene.textures.get(mesh_comp.material.albedo), map_sampler)
+							 .bind_sampled_image(2, 1, m_scene.textures.get(mesh_comp.material.normal), map_sampler)
+							 .bind_sampled_image(2, 2, m_scene.textures.get(mesh_comp.material.metallic), map_sampler)
+							 .bind_sampled_image(2, 3, m_scene.textures.get(mesh_comp.material.roughness), map_sampler)
+							 .bind_sampled_image(2, 4, m_scene.textures.get(mesh_comp.material.ao), map_sampler)
+							 .bind_uniform_buffer(1, 0, m_transform_buffer.subrange(offset, sizeof(glm::mat4)));
+						 cbuf.draw_indexed(m_scene.meshes.get(mesh_comp.mesh).mesh.second.size(), 1, 0, 0, 0);
+						 offset += sizeof(glm::mat4);
+					 });
 				 }});
 
 	rg.attach_managed("pbr_msaa", vuk::Format::eR8G8B8A8Srgb, vuk::Dimension2D::framebuffer(), vuk::Samples::e8, vuk::ClearColor{0.01f, 0.01f, 0.01f, 1.f});
