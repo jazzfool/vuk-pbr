@@ -24,7 +24,7 @@ const vec3 lightPositions[1] = vec3[1](
     vec3(0, 0, 0)
 );
 const vec3 lightDirections[1] = vec3[1](
-    vec3(0, -1, 0)
+    vec3(0, -1, 1)
 );
 const vec3 lightColors[1] = vec3[1](
     vec3(1000, 1000, 1000)

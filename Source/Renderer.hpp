@@ -36,6 +36,7 @@ class Renderer {
 	glm::vec3 m_cam_up;
 
 	vuk::Buffer m_transform_buffer;
+	u32 m_transform_buffer_alignment;
 
 	Mesh m_sphere;
 	Mesh m_cube;

@@ -34,3 +34,5 @@ build/
 compile_commands.json
 .vscode/
 .cache/
+.vs/
+CMakeSettings.json

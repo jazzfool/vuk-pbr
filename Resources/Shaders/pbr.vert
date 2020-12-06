@@ -18,10 +18,15 @@ layout(set = 1, binding = 0) uniform Object {
     mat4 model;
 };
 
+out gl_PerVertex {
+    vec4 gl_Position;
+};
+
 void main() {
     TexCoords = aTexCoords;
-    WorldPos = vec3(model * vec4(aPos, 1.0));
-    Normal = mat3(model) * aNormal;
+    vec4 locPos = model * vec4(aPos, 1.0);
+    WorldPos = locPos.xyz / locPos.w;
+    Normal = normalize(transpose(inverse(mat3(model))) * aNormal);
 
     gl_Position = projection * view * vec4(WorldPos, 1.0);
 }

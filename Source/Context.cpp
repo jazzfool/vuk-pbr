@@ -108,6 +108,11 @@ std::optional<Context> Context::create() {
 }
 
 void Context::cleanup(std::optional<Context>& ctxt) {
+	ctxt->vuk_context->wait_idle();
+	for (auto i = 0; i < vuk::Context::FC; ++i) {
+		ctxt->vuk_context->begin();
+	}
+
 	auto vkb_instance = ctxt->vkb_instance;
 	auto vkb_device = ctxt->vkb_device;
 	auto surface = ctxt->surface;

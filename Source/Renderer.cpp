@@ -65,14 +65,16 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 
 	// allocate a large buffer to dump all the model matrices in; this will be used a dynamic UBO for drawing by offsetting into it
 
-	renderer.m_transform_buffer = ctxt.vuk_context->allocate_buffer(
-		vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eUniformBuffer | vuk::BufferUsageFlagBits::eTransferDst, std::pow(2, 18), sizeof(glm::mat4));
+	renderer.m_transform_buffer_alignment = std::max(ctxt.vkb_physical_device.properties.limits.minUniformBufferOffsetAlignment, sizeof(glm::mat4));
+	renderer.m_transform_buffer =
+		ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eUniformBuffer | vuk::BufferUsageFlagBits::eTransferDst,
+										  std::pow(2, 18), renderer.m_transform_buffer_alignment);
 
 	// load the textures that are going to be used later
 
 	renderer.m_scene.textures.insert("Iron.Albedo", gfx_util::load_mipmapped_texture("Resources/Textures/rust_albedo.jpg", ptc));
 	renderer.m_scene.textures.insert("Iron.Metallic", gfx_util::load_mipmapped_texture("Resources/Textures/rust_metallic.png", ptc));
-	renderer.m_scene.textures.insert("Iron.Normal", gfx_util::load_mipmapped_texture("Resources/Textures/rust_normal.jpg", ptc));
+	renderer.m_scene.textures.insert("Iron.Normal", gfx_util::load_mipmapped_texture("Resources/Textures/rust_normal.jpg", ptc, false));
 	renderer.m_scene.textures.insert("Iron.Roughness", gfx_util::load_mipmapped_texture("Resources/Textures/rust_roughness.jpg", ptc));
 	renderer.m_scene.textures.insert("Iron.AO", gfx_util::load_mipmapped_texture("Resources/Textures/rust_ao.jpg", ptc));
 
@@ -131,7 +133,8 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 							 cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, 512, 512))
 								 .set_scissor(0, vuk::Rect2D::absolute(0, 0, 512, 512))
 								 .bind_vertex_buffer(0, verts, 0,
-													 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32Sfloat})
+													 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat},
+																 vuk::Ignore{vuk::Format::eR32G32Sfloat}})
 								 .bind_index_buffer(inds, vuk::IndexType::eUint32)
 								 .bind_sampled_image(0, 2, renderer.m_hdr_texture,
 													 vuk::SamplerCreateInfo{.magFilter = vuk::Filter::eLinear,
@@ -192,7 +195,8 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 							 cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, 32, 32))
 								 .set_scissor(0, vuk::Rect2D::absolute(0, 0, 32, 32))
 								 .bind_vertex_buffer(0, verts, 0,
-													 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32Sfloat})
+													 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat},
+																 vuk::Ignore{vuk::Format::eR32G32Sfloat}})
 								 .bind_index_buffer(inds, vuk::IndexType::eUint32)
 								 .bind_sampled_image(0, 2, *renderer.m_env_cubemap_iv, renderer.m_env_cubemap.second)
 								 .bind_graphics_pipeline("irradiance");
@@ -264,7 +268,8 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 								 cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, (f32)mip_wh, (f32)mip_wh))
 									 .set_scissor(0, vuk::Rect2D::absolute(0, 0, mip_wh, mip_wh))
 									 .bind_vertex_buffer(0, verts, 0,
-														 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32Sfloat})
+														 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat},
+																	 vuk::Ignore{vuk::Format::eR32G32Sfloat}})
 									 .bind_index_buffer(inds, vuk::IndexType::eUint32)
 									 .bind_sampled_image(0, 2, *renderer.m_env_cubemap_iv,
 														 vuk::SamplerCreateInfo{.magFilter = vuk::Filter::eLinear,
@@ -337,8 +342,9 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 			rg.add_pass({.resources = {"brdf_out"_image(vuk::eColorWrite)}, .execute = [&](vuk::CommandBuffer& cbuf) {
 							 cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, 512, 512))
 								 .set_scissor(0, vuk::Rect2D::absolute(0, 0, 512, 512))
-								 .bind_vertex_buffer(0, qverts, 0,
-													 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32Sfloat})
+								 .bind_vertex_buffer(
+									 0, qverts, 0,
+									 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat}, vuk::Format::eR32G32Sfloat})
 								 .bind_index_buffer(qinds, vuk::IndexType::eUint32)
 								 .bind_graphics_pipeline("brdf");
 							 cbuf.draw_indexed(renderer.m_quad.second.size(), 1, 0, 0, 0);
@@ -367,7 +373,7 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 															  .roughness = TextureCache::view("Iron.Roughness"),
 															  .normal = TextureCache::view("Iron.Normal"),
 															  .ao = TextureCache::view("Iron.AO")});
-	renderer.m_scene.registry.emplace<TransformComponent>(entity, TransformComponent{}.rotate(glm::angleAxis(glm::degrees(90.f), glm::vec3(1, 0, 0))));
+	renderer.m_scene.registry.emplace<TransformComponent>(entity, TransformComponent{});
 
 	auto entity2 = renderer.m_scene.registry.create();
 	renderer.m_scene.registry.emplace<MeshComponent>(entity2, MeshCache::view("Cube"),
@@ -423,10 +429,12 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 
 	auto meshes_view = m_scene.registry.view<MeshComponent, TransformComponent>();
 
-	std::vector<glm::mat4> transforms;
-	transforms.reserve(meshes_view.size_hint());
-	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) { transforms.push_back(transform.matrix); });
-	ptc.upload(m_transform_buffer, std::span{transforms});
+	u32 offset = 0;
+	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) {
+		transform.rotate(glm::angleAxis(glm::degrees(0.00001f), glm::vec3{1, 0, 0}));
+		ptc.upload(m_transform_buffer.subrange(offset, sizeof(glm::mat4)), std::span{&transform.matrix, 1});
+		offset += m_transform_buffer_alignment;
+	});
 
 	ptc.wait_all_transfers();
 
@@ -463,13 +471,14 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 							 .bind_sampled_image(2, 2, m_scene.textures.get(mesh_comp.material.metallic), map_sampler)
 							 .bind_sampled_image(2, 3, m_scene.textures.get(mesh_comp.material.roughness), map_sampler)
 							 .bind_sampled_image(2, 4, m_scene.textures.get(mesh_comp.material.ao), map_sampler)
-							 .bind_uniform_buffer(1, 0, m_transform_buffer.subrange(offset, sizeof(glm::mat4)));
+							 .bind_uniform_buffer(1, 0, m_transform_buffer.subrange(offset, m_transform_buffer_alignment));
 						 cbuf.draw_indexed(m_scene.meshes.get(mesh_comp.mesh).mesh.second.size(), 1, 0, 0, 0);
-						 offset += sizeof(glm::mat4);
+						 offset += m_transform_buffer_alignment;
 					 });
 				 }});
 
-	rg.attach_managed("pbr_msaa", vuk::Format::eR8G8B8A8Srgb, vuk::Dimension2D::framebuffer(), vuk::Samples::e8, vuk::ClearColor{0.01f, 0.01f, 0.01f, 1.f});
+	rg.attach_managed("pbr_msaa", static_cast<vuk::Format>(m_ctxt->vkb_swapchain.image_format), vuk::Dimension2D::framebuffer(), vuk::Samples::e8,
+					  vuk::ClearColor{0.01f, 0.01f, 0.01f, 1.f});
 	rg.attach_managed("pbr_depth", vuk::Format::eD32Sfloat, vuk::Dimension2D::framebuffer(), vuk::Samples::Framebuffer{}, vuk::ClearDepthStencil{1.0f, 0});
 	rg.resolve_resource_into("pbr_final", "pbr_msaa");
 
