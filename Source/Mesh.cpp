@@ -110,6 +110,36 @@ void RenderMesh::upload(vuk::PerThreadContext& ptc) {
 	inds = std::move(binds);
 }
 
+void RenderMesh::compute_bounds() {
+	min = mesh.first[0].position;
+	max = mesh.first[0].position;
+	for (const auto& vert : mesh.first) {
+		if (vert.position.x < min.x) {
+			min.x = vert.position.x;
+		}
+
+		if (vert.position.y < min.y) {
+			min.y = vert.position.y;
+		}
+
+		if (vert.position.z < min.z) {
+			min.z = vert.position.z;
+		}
+
+		if (vert.position.x > max.x) {
+			max.x = vert.position.x;
+		}
+
+		if (vert.position.y > max.y) {
+			max.y = vert.position.y;
+		}
+
+		if (vert.position.z > max.z) {
+			max.z = vert.position.z;
+		}
+	}
+}
+
 TransformComponent::TransformComponent() : matrix{1} {
 }
 

@@ -3,6 +3,7 @@
 #include "Context.hpp"
 #include "Resource.hpp"
 #include "GfxUtil.hpp"
+#include "Frustum.hpp"
 
 #include <vuk/RenderGraph.hpp>
 #include <vuk/Pipeline.hpp>
@@ -10,6 +11,8 @@
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/euler_angles.hpp>
+#include <glm/common.hpp>
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
 
@@ -60,6 +63,8 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	brdf.add_shader(get_resource_string("Resources/Shaders/brdf.frag"), "brdf.frag");
 	ctxt.vuk_context->create_named_pipeline("brdf", brdf);
 
+	CascadedShadowRenderPass::setup(ctxt);
+
 	auto ifc = ctxt.vuk_context->begin();
 	auto ptc = ifc.begin();
 
@@ -87,6 +92,11 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	cube_rm.mesh = renderer.m_cube;
 	cube_rm.upload(ptc);
 	renderer.m_scene.meshes.insert("Cube", std::move(cube_rm));
+
+	RenderMesh quad_rm;
+	quad_rm.mesh = renderer.m_quad;
+	quad_rm.upload(ptc);
+	renderer.m_scene.meshes.insert("Quad", std::move(quad_rm));
 
 	renderer.m_hdr_texture = gfx_util::load_cubemap_texture("Resources/Textures/forest_slope_1k.hdr", ptc);
 
@@ -375,7 +385,7 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 															  .ao = TextureCache::view("Iron.AO")});
 	renderer.m_scene.registry.emplace<TransformComponent>(entity, TransformComponent{});
 
-	auto entity2 = renderer.m_scene.registry.create();
+	/*auto entity2 = renderer.m_scene.registry.create();
 	renderer.m_scene.registry.emplace<MeshComponent>(entity2, MeshCache::view("Cube"),
 													 Material{.albedo = TextureCache::view("Iron.Albedo"),
 															  .metallic = TextureCache::view("Iron.Metallic"),
@@ -383,13 +393,23 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 															  .normal = TextureCache::view("Iron.Normal"),
 															  .ao = TextureCache::view("Iron.AO")});
 	renderer.m_scene.registry.emplace<TransformComponent>(
-		entity2, TransformComponent{}.translate({10, 5, 5}).rotate(glm::angleAxis(glm::degrees(90.f), glm::vec3(1, 0, 0))));
+		entity2, TransformComponent{}.translate({10, 5, 5}).rotate(glm::angleAxis(glm::degrees(90.f), glm::vec3(1, 0, 0))));*/
+
+	auto entity3 = renderer.m_scene.registry.create();
+	renderer.m_scene.registry.emplace<MeshComponent>(entity3, MeshCache::view("Quad"),
+													 Material{.albedo = TextureCache::view("Iron.Albedo"),
+															  .metallic = TextureCache::view("Iron.Metallic"),
+															  .roughness = TextureCache::view("Iron.Roughness"),
+															  .normal = TextureCache::view("Iron.Normal"),
+															  .ao = TextureCache::view("Iron.AO")});
+	renderer.m_scene.registry.emplace<TransformComponent>(
+		entity3, TransformComponent{}.translate({0, -1, 0}).rotate(glm::eulerAngleXYZ(glm::radians(-90.f), 0.f, 0.f)).scale({3, 3, 3}));
 
 	return renderer;
 }
 
 void Renderer::update() {
-	constexpr static f32 cam_speed = 0.0025f;
+	constexpr static f32 cam_speed = 0.005f;
 
 	const f32 dz = (glfwGetKey(m_ctxt->window, GLFW_KEY_W) | glfwGetKey(m_ctxt->window, GLFW_KEY_UP) - glfwGetKey(m_ctxt->window, GLFW_KEY_S) |
 					glfwGetKey(m_ctxt->window, GLFW_KEY_DOWN)) *
@@ -416,22 +436,59 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 	struct Uniforms {
 		glm::mat4 projection;
 		glm::mat4 view;
+		glm::mat4 light_space_matrix;
 	};
+
+	struct Cascades {
+		float cascade_splits[CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT];
+		glm::mat4 cascade_view_proj_mats[CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT];
+		glm::vec3 light_direction;
+	};
+
+	static const glm::vec3 LIGHT_DIRECTION = glm::normalize(glm::vec3(0, -2, 1));
+
+	auto meshes_view = m_scene.registry.view<MeshComponent, TransformComponent>();
 
 	Uniforms uniforms;
 
-	uniforms.projection = glm::perspective(glm::degrees(60.f), 800.f / 600.f, 0.1f, 1000.f);
-	uniforms.projection[1][1] *= -1.f; // flip the projection so it's the right way up
+	uniforms.projection = glm::perspective(glm::radians(60.f), 800.f / 600.f, 0.1f, 10.f);
+	uniforms.projection[1][1] *= -1.f; // flip the projection so it renders the right way up
 	uniforms.view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
 
 	auto [bubo, stub3] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span(&uniforms, 1));
 	auto ubo = bubo;
 
-	auto meshes_view = m_scene.registry.view<MeshComponent, TransformComponent>();
+	m_cascaded_shadows.meshes.clear();
+	m_cascaded_shadows.meshes.reserve(meshes_view.size_hint());
+
+	meshes_view.each(
+		[&](MeshComponent& component, TransformComponent& transform) { m_cascaded_shadows.meshes.push_back(&m_scene.meshes.get(component.mesh)); });
+
+	Cascades cascades;
+
+	cascades.light_direction = LIGHT_DIRECTION;
+
+	m_cascaded_shadows.light_direction = LIGHT_DIRECTION;
+	m_cascaded_shadows.cam_proj = uniforms.projection;
+	m_cascaded_shadows.cam_view = uniforms.view;
+	m_cascaded_shadows.cam_near = 0.1f;
+	m_cascaded_shadows.cam_far = 10.f;
+	m_cascaded_shadows.transform_buffer = m_transform_buffer;
+	m_cascaded_shadows.transform_buffer_alignment = m_transform_buffer_alignment;
+
+	auto computed_cascades = m_cascaded_shadows.compute_cascades();
+
+	for (u32 i = 0; i < computed_cascades.size(); ++i) {
+		cascades.cascade_splits[i] = computed_cascades[i].split_depth;
+		cascades.cascade_view_proj_mats[i] = computed_cascades[i].view_proj_mat;
+	}
+
+	auto [bcascade_ubo, cascadestub] =
+		ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&cascades, 1});
+	auto cascade_ubo = bcascade_ubo;
 
 	u32 offset = 0;
 	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) {
-		transform.rotate(glm::angleAxis(glm::degrees(0.00001f), glm::vec3{1, 0, 0}));
 		ptc.upload(m_transform_buffer.subrange(offset, sizeof(glm::mat4)), std::span{&transform.matrix, 1});
 		offset += m_transform_buffer_alignment;
 	});
@@ -449,8 +506,38 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 											 .maxLod = 16.f};
 
 	vuk::RenderGraph rg;
+
+	// cascaded depth only pass
+
+	m_shadow_map = m_ctxt->vuk_context->allocate_texture(
+		vuk::ImageCreateInfo{.imageType = vuk::ImageType::e2D,
+							 .format = vuk::Format::eD32Sfloat,
+							 .extent = vuk::Extent3D{1024, 1024, 1},
+							 .mipLevels = 1,
+							 .arrayLayers = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT,
+							 .samples = vuk::SampleCountFlagBits::e1,
+							 .tiling = vuk::ImageTiling::eOptimal,
+							 .usage = vuk::ImageUsageFlagBits::eSampled | vuk::ImageUsageFlagBits::eDepthStencilAttachment,
+							 .sharingMode = vuk::SharingMode::eExclusive});
+
+	for (const auto& pass : m_cascaded_shadows.build(ptc, rg, *m_shadow_map.image)) {
+		rg.add_pass(pass);
+	}
+
+	m_shadow_map_view = ptc.create_image_view(
+		vuk::ImageViewCreateInfo{.image = *m_shadow_map.image,
+								 .viewType = vuk::ImageViewType::e2DArray,
+								 .format = vuk::Format::eD32Sfloat,
+								 .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eDepth,
+																				.baseMipLevel = 0,
+																				.levelCount = 1,
+																				.baseArrayLayer = 0,
+																				.layerCount = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT}});
+
+	// color pass
+
 	rg.add_pass({.resources = {"pbr_msaa"_image(vuk::eColorWrite), "pbr_depth"_image(vuk::eDepthStencilRW)},
-				 .execute = [meshes_view, map_sampler, ubo, this](vuk::CommandBuffer& cbuf) {
+				 .execute = [this, meshes_view, map_sampler, ubo, cascade_ubo](vuk::CommandBuffer& cbuf) {
 					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 						 .set_scissor(0, vuk::Rect2D::framebuffer())
 						 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
@@ -458,6 +545,11 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 						 .bind_sampled_image(0, 1, *m_irradiance_cubemap_iv, m_irradiance_cubemap.second)
 						 .bind_sampled_image(0, 2, *m_prefilter_cubemap_iv, m_prefilter_cubemap.second)
 						 .bind_sampled_image(0, 3, m_brdf_lut.first, m_brdf_lut.second)
+						 .bind_sampled_image(0, 4, *m_shadow_map_view,
+											 vuk::SamplerCreateInfo{.addressModeU = vuk::SamplerAddressMode::eClampToBorder,
+																	.addressModeV = vuk::SamplerAddressMode::eClampToBorder,
+																	.addressModeW = vuk::SamplerAddressMode::eClampToBorder})
+						 .bind_uniform_buffer(0, 5, cascade_ubo)
 						 .bind_graphics_pipeline("pbr")
 						 .bind_uniform_buffer(0, 0, ubo);
 
@@ -477,9 +569,14 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 					 });
 				 }});
 
+	/*rg.attach_image("shadow_map",
+					vuk::ImageAttachment{
+						.image = *m_shadow_map.image, .image_view = *m_shadow_map_view, .extent = vuk::Extent2D{1024, 1024}, .format = vuk::Format::eD32Sfloat},
+					vuk::Access::eFragmentSampled, vuk::Access::eFragmentSampled);*/
+
 	rg.attach_managed("pbr_msaa", static_cast<vuk::Format>(m_ctxt->vkb_swapchain.image_format), vuk::Dimension2D::framebuffer(), vuk::Samples::e8,
 					  vuk::ClearColor{0.01f, 0.01f, 0.01f, 1.f});
-	rg.attach_managed("pbr_depth", vuk::Format::eD32Sfloat, vuk::Dimension2D::framebuffer(), vuk::Samples::Framebuffer{}, vuk::ClearDepthStencil{1.0f, 0});
+	rg.attach_managed("pbr_depth", vuk::Format::eD32Sfloat, vuk::Dimension2D::framebuffer(), vuk::Samples::Framebuffer{}, vuk::ClearDepthStencil{1.f, 0});
 	rg.resolve_resource_into("pbr_final", "pbr_msaa");
 
 	return rg;

@@ -39,8 +39,11 @@ Mesh load_obj(std::string_view path);
 
 struct RenderMesh {
 	void upload(vuk::PerThreadContext& ptc);
+	void compute_bounds();
 
 	Mesh mesh;
+	glm::vec3 min;
+	glm::vec3 max;
 	vuk::Unique<vuk::Buffer> verts;
 	vuk::Unique<vuk::Buffer> inds;
 };

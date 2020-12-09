@@ -4,6 +4,7 @@
 #include "Mesh.hpp"
 #include "Scene.hpp"
 #include "Material.hpp"
+#include "GfxParts/CascadedShadows.hpp"
 
 #include <glm/vec3.hpp>
 #include <vuk/Image.hpp>
@@ -25,6 +26,10 @@ class Renderer {
 	struct Context* m_ctxt;
 
 	Scene m_scene;
+
+	CascadedShadowRenderPass m_cascaded_shadows;
+	vuk::Texture m_shadow_map;
+	vuk::Unique<vuk::ImageView> m_shadow_map_view;
 
 	f32 m_angle;
 	f64 m_last_x;

@@ -38,6 +38,7 @@ std::optional<Context> Context::create() {
 
 	VkPhysicalDeviceFeatures phys_dev_features = {};
 	phys_dev_features.samplerAnisotropy = VK_TRUE;
+	phys_dev_features.depthClamp = VK_TRUE;
 
 	glfwCreateWindowSurface(ctxt.instance, ctxt.window, nullptr, &ctxt.surface);
 
@@ -55,8 +56,8 @@ std::optional<Context> Context::create() {
 	ctxt.physical_device = ctxt.vkb_physical_device.physical_device;
 
 	vkb::DeviceBuilder device_builder{ctxt.vkb_physical_device};
-	VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
 
+	VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
 	descriptor_indexing_features.descriptorBindingPartiallyBound = true;
 	descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending = true;
 	descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = true;

@@ -4,7 +4,7 @@
 
 - [x] Basic PBR
 - [x] Image-based lighting
-- [ ] Shadow mapping
+- [x] Cascaded shadow maps
 - [ ] SSAO
 - [ ] Volumetric fog
 - [ ] UE4-based sky/atmosphere

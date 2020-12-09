@@ -110,4 +110,4 @@ vuk::Texture alloc_lut(u32 width, u32 height, vuk::PerThreadContext& ptc) {
 	return texture;
 }
 
-}
+} // namespace gfx_util

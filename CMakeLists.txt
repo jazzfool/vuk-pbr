@@ -5,6 +5,8 @@ project(vukpbr CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+add_definitions(-DGLM_FORCE_RADIANS -DGLM_FORCE_DEPTH_ZERO_TO_ONE)
+
 set(Source
 
     Source/main.cpp
@@ -15,6 +17,9 @@ set(Source
     Source/Context.cpp
     Source/Renderer.cpp
     Source/Scene.cpp
+    Source/Frustum.cpp
+    
+    Source/GfxParts/CascadedShadows.cpp
 )
 
 set(Resources
@@ -27,6 +32,10 @@ set(Resources
     Resources/Shaders/prefilter.frag
     Resources/Shaders/brdf.vert
     Resources/Shaders/brdf.frag
+    Resources/Shaders/depth_only.vert
+    Resources/Shaders/depth_only.frag
+    Resources/Shaders/debug_shadow_map.vert
+    Resources/Shaders/debug_shadow_map.frag
 
     Resources/Textures/rust_albedo.jpg
     Resources/Textures/rust_metallic.png

@@ -1,9 +1,12 @@
 #version 450
 #pragma shader_stage(fragment)
 
+#define SHADOW_MAP_CASCADE_COUNT 4
+
 layout (location = 0) in vec2 TexCoords;
 layout (location = 1) in vec3 WorldPos;
 layout (location = 2) in vec3 Normal;
+layout (location = 3) in vec3 MvWorldPos;
 
 layout (location = 0) out vec4 FragColor;
 
@@ -18,21 +21,32 @@ layout (set = 2, binding = 4) uniform sampler2D aoMap;
 layout (set = 0, binding = 1) uniform samplerCube irradianceMap;
 layout (set = 0, binding = 2) uniform samplerCube prefilterMap;
 layout (set = 0, binding = 3) uniform sampler2D brdfLUT;
+layout (set = 0, binding = 4) uniform sampler2DArray shadowMap;
 
-// lights
-const vec3 lightPositions[1] = vec3[1](
-    vec3(0, 0, 0)
-);
-const vec3 lightDirections[1] = vec3[1](
-    vec3(0, -1, 1)
-);
+layout (set = 0, binding = 5) uniform Cascades {
+    // i can get away with vec4 because float[SHADOW_MAP_CASCADE_COUNT] -> float[4] -> vec4 and thus i don't have to deal with alignment
+    vec4 cascade_splits;
+    mat4 cascade_view_proj_mats[SHADOW_MAP_CASCADE_COUNT];
+    vec3 light_direction;
+};
+
+// the sun :O
 const vec3 lightColors[1] = vec3[1](
     vec3(1000, 1000, 1000)
+);
+
+const mat4 biasMat = mat4( 
+	0.5, 0.0, 0.0, 0.0,
+	0.0, 0.5, 0.0, 0.0,
+	0.0, 0.0, 1.0, 0.0,
+	0.5, 0.5, 0.0, 1.0 
 );
 
 layout (push_constant) uniform PushConstants {
     vec3 camPos;
 };
+
+// the rest of this is a slightly modified version of LearnOpenGL's PBR shader
 
 const float PI = 3.14159265359;
 // ----------------------------------------------------------------------------
@@ -100,8 +114,56 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0)
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
-}   
-// ----------------------------------------------------------------------------
+}
+
+float textureProj(vec4 shadowCoord, vec2 offset, uint cascadeIndex, vec3 N)
+{
+	float shadow = 1.0;
+	//float bias = 0.005;
+    float bias = 0.005 * tan(acos(clamp(dot(N, normalize(-light_direction)), 0, 1)));
+    bias = clamp(bias, 0, 0.01);
+
+	if (shadowCoord.z > -1.0 && shadowCoord.z < 1.0) {
+		float dist = texture(shadowMap, vec3(shadowCoord.st + offset, cascadeIndex)).r;
+		if (shadowCoord.w > 0 && dist < shadowCoord.z - bias) {
+			shadow = 0; // ambient light
+		}
+	}
+
+	return shadow;
+}
+
+// shadows :)
+float shadow_calculation(vec3 N) {
+    uint cascadeIndex = 0;
+    for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i) {
+        if (MvWorldPos.z < cascade_splits[i]) {
+            cascadeIndex = i + 1;
+        }
+    }
+
+    vec4 sc = (biasMat * cascade_view_proj_mats[cascadeIndex]) * vec4(WorldPos, 1.0);
+    sc = sc / sc.w;
+
+	ivec2 texDim = textureSize(shadowMap, 0).xy;
+	float scale = 0.75;
+	float dx = scale * 1.0 / float(texDim.x);
+	float dy = scale * 1.0 / float(texDim.y);
+
+	float shadowFactor = 0.0;
+	int count = 0;
+	int range = 8;
+	
+	for (int x = -range; x <= range; x++) {
+		for (int y = -range; y <= range; y++) {
+			shadowFactor += textureProj(sc, vec2(dx*x, dy*y), cascadeIndex, N);
+			count++;
+		}
+	}
+
+	return shadowFactor / count;
+}
+
 void main()
 {		
     // material properties
@@ -109,41 +171,42 @@ void main()
     float metallic = texture(metallicMap, TexCoords).r;
     float roughness = texture(roughnessMap, TexCoords).r;
     float ao = texture(aoMap, TexCoords).r;
-    
+
     // input lighting data
     vec3 N = getNormalFromMap();
     vec3 V = normalize(camPos - WorldPos);
-    vec3 R = reflect(-V, N); 
+    vec3 R = reflect(-V, N);
+
+    float shadow = shadow_calculation(N);
+    shadow = clamp(shadow, 0, 1);
 
     // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
     // of 0.04 and if it's a metal, use the albedo color as F0 (metallic workflow)    
-    vec3 F0 = vec3(0.04); 
+    vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo, metallic);
 
     // reflectance equation
     vec3 Lo = vec3(0.0);
 
-    // a single directional light:
-
-    for(int i = 0; i < 1; ++i) 
+    // for a single directional light:
     {
         // calculate per-light radiance
         //vec3 L = normalize(lightPositions[i] - WorldPos);
-        vec3 L = normalize(-lightDirections[i]); // light direction
+        vec3 L = normalize(-light_direction); // light direction
         vec3 H = normalize(V + L);
-        float distance = length(lightPositions[i] - WorldPos);
+        float distance = length(light_direction - WorldPos);
         float attenuation = 1.0 / (distance * distance);
-        vec3 radiance = lightColors[i] /* * attenuation*/; // no attenuation for directional lights
+        vec3 radiance = lightColors[0] /* * attenuation*/; // no attenuation for directional lights
 
         // Cook-Torrance BRDF
-        float NDF = DistributionGGX(N, H, roughness);   
-        float G   = GeometrySmith(N, V, L, roughness);    
-        vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);        
-        
+        float NDF = DistributionGGX(N, H, roughness);
+        float G   = GeometrySmith(N, V, L, roughness);
+        vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
+            
         vec3 nominator    = NDF * G * F;
         float denominator = 4 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.001; // 0.001 to prevent divide by zero.
         vec3 specular = nominator / denominator;
-        
+            
         // kS is equal to Fresnel
         vec3 kS = F;
         // for energy conservation, the diffuse and specular light can't
@@ -154,7 +217,7 @@ void main()
         // have diffuse lighting, or a linear blend if partly metal (pure metals
         // have no diffuse light).
         kD *= 1.0 - metallic;	                
-            
+                
         // scale light by NdotL
         float NdotL = max(dot(N, L), 0.0);        
 
@@ -170,7 +233,7 @@ void main()
     kD *= 1.0 - metallic;	  
     
     vec3 irradiance = texture(irradianceMap, N).rgb;
-    vec3 diffuse      = irradiance * albedo;
+    vec3 diffuse = irradiance * albedo;
     
     // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
     const float MAX_REFLECTION_LOD = 4.0;
@@ -180,12 +243,16 @@ void main()
 
     vec3 ambient = (kD * diffuse + specular) * ao;
     
-    vec3 color = ambient + Lo;
+    vec3 color = ambient + Lo * shadow;
+
+    shadow = clamp(shadow, 0.2, 1);
+
+    color.rgb *= shadow;
 
     // HDR tonemapping
     color = color / (color + vec3(1.0));
     // gamma correct
     color = pow(color, vec3(1.0/2.2)); 
 
-    FragColor = vec4(color , 1.0);
+    FragColor = vec4(color, 1.0);
 }

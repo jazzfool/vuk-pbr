@@ -8,6 +8,7 @@ layout (location = 2) in vec2 aTexCoords;
 layout (location = 0) out vec2 TexCoords;
 layout (location = 1) out vec3 WorldPos;
 layout (location = 2) out vec3 Normal;
+layout (location = 3) out vec3 MvWorldPos;
 
 layout(set = 0, binding = 0) uniform Uniforms {
     mat4 projection;
@@ -27,6 +28,7 @@ void main() {
     vec4 locPos = model * vec4(aPos, 1.0);
     WorldPos = locPos.xyz / locPos.w;
     Normal = normalize(transpose(inverse(mat3(model))) * aNormal);
+    MvWorldPos = (view * vec4(WorldPos, 1.0)).xyz;
 
     gl_Position = projection * view * vec4(WorldPos, 1.0);
 }
