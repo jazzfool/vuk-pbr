@@ -1,10 +1,11 @@
-# Realtime PBR renderer (made with Vuk)
+# Realtime Forward PBR renderer (made with Vuk)
 
-<img src="Resources/Screenshot.png" width="250px" />
+<img src="Resources/Screenshot.png" height="250px" />
+<img src="Resources/Screenshot2.png" height="250px" />
 
 - [x] Basic PBR
 - [x] Image-based lighting
 - [x] Cascaded shadow maps
-- [ ] SSAO
+- [x] SSAO
 - [ ] Volumetric fog
 - [ ] UE4-based sky/atmosphere

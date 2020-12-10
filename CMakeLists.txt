@@ -20,6 +20,8 @@ set(Source
     Source/Frustum.cpp
     
     Source/GfxParts/CascadedShadows.cpp
+    Source/GfxParts/SSAO.cpp
+    Source/GfxParts/GBuffer.cpp
 )
 
 set(Resources
@@ -36,14 +38,22 @@ set(Resources
     Resources/Shaders/depth_only.frag
     Resources/Shaders/debug_shadow_map.vert
     Resources/Shaders/debug_shadow_map.frag
+    Resources/Shaders/ssao.vert
+    Resources/Shaders/ssao.frag
+    Resources/Shaders/gbuffer.vert
+    Resources/Shaders/gbuffer.frag
+    Resources/Shaders/debug.vert
+    Resources/Shaders/debug.frag
+    Resources/Shaders/ssao_blur.frag
 
     Resources/Textures/rust_albedo.jpg
     Resources/Textures/rust_metallic.png
     Resources/Textures/rust_roughness.jpg
     Resources/Textures/rust_normal.jpg
     Resources/Textures/rust_ao.jpg
-
+    
     Resources/Textures/forest_slope_1k.hdr
+    Resources/Textures/random_normal.jpg
 
     Resources/Meshes/Sphere.obj
 )

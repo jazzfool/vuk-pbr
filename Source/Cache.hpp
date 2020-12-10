@@ -74,10 +74,10 @@ bool Cache<K, V>::valid(const CacheView<K, V>& view) const {
 
 template <typename K, typename V>
 V& Cache<K, V>::get(const CacheView<K, V>& view) {
-	return m_cache[*view.key];
+	return m_cache.at(*view.key);
 }
 
 template <typename K, typename V>
 const V& Cache<K, V>::get(const CacheView<K, V>& view) const {
-	return m_cache[*view.key];
+	return m_cache.at(*view.key);
 }

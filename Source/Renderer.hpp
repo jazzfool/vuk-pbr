@@ -5,6 +5,8 @@
 #include "Scene.hpp"
 #include "Material.hpp"
 #include "GfxParts/CascadedShadows.hpp"
+#include "GfxParts/SSAO.hpp"
+#include "GfxParts/GBuffer.hpp"
 
 #include <glm/vec3.hpp>
 #include <vuk/Image.hpp>
@@ -26,10 +28,14 @@ class Renderer {
 	struct Context* m_ctxt;
 
 	Scene m_scene;
+	SceneRenderer m_scene_renderer;
 
 	CascadedShadowRenderPass m_cascaded_shadows;
 	vuk::Texture m_shadow_map;
 	vuk::Unique<vuk::ImageView> m_shadow_map_view;
+
+	SSAODepthPass m_ssao;
+	GBufferPass m_gbuffer;
 
 	f32 m_angle;
 	f64 m_last_x;

@@ -1,5 +1,6 @@
 #include "GfxUtil.hpp"
 
+#include "Context.hpp"
 #include "Resource.hpp"
 
 #include <stb_image/stb_image.h>
@@ -108,6 +109,10 @@ vuk::Texture alloc_lut(u32 width, u32 height, vuk::PerThreadContext& ptc) {
 	auto texture = ptc.allocate_texture(ici);
 
 	return texture;
+}
+
+u64 uniform_buffer_offset_alignment(Context& ctxt, u64 min) {
+	return std::max(ctxt.vkb_physical_device.properties.limits.minUniformBufferOffsetAlignment, min);
 }
 
 } // namespace gfx_util

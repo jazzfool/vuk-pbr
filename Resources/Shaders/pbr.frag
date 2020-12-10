@@ -22,8 +22,9 @@ layout (set = 0, binding = 1) uniform samplerCube irradianceMap;
 layout (set = 0, binding = 2) uniform samplerCube prefilterMap;
 layout (set = 0, binding = 3) uniform sampler2D brdfLUT;
 layout (set = 0, binding = 4) uniform sampler2DArray shadowMap;
+layout (set = 0, binding = 5) uniform sampler2D g_ssao;
 
-layout (set = 0, binding = 5) uniform Cascades {
+layout (set = 0, binding = 6) uniform Cascades {
     // i can get away with vec4 because float[SHADOW_MAP_CASCADE_COUNT] -> float[4] -> vec4 and thus i don't have to deal with alignment
     vec4 cascade_splits;
     mat4 cascade_view_proj_mats[SHADOW_MAP_CASCADE_COUNT];
@@ -44,6 +45,8 @@ const mat4 biasMat = mat4(
 
 layout (push_constant) uniform PushConstants {
     vec3 camPos;
+    float _pad;
+    vec2 screen_size;
 };
 
 // the rest of this is a slightly modified version of LearnOpenGL's PBR shader
@@ -172,6 +175,8 @@ void main()
     float roughness = texture(roughnessMap, TexCoords).r;
     float ao = texture(aoMap, TexCoords).r;
 
+    float ssao = texture(g_ssao, gl_FragCoord.xy / vec2(screen_size.x, screen_size.y)).r;
+
     // input lighting data
     vec3 N = getNormalFromMap();
     vec3 V = normalize(camPos - WorldPos);
@@ -243,7 +248,7 @@ void main()
 
     vec3 ambient = (kD * diffuse + specular) * ao;
     
-    vec3 color = ambient + Lo * shadow;
+    vec3 color = ambient * ssao + Lo * shadow;
 
     shadow = clamp(shadow, 0.2, 1);
 

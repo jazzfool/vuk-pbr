@@ -63,10 +63,19 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	brdf.add_shader(get_resource_string("Resources/Shaders/brdf.frag"), "brdf.frag");
 	ctxt.vuk_context->create_named_pipeline("brdf", brdf);
 
+	vuk::PipelineBaseCreateInfo debug;
+	debug.add_shader(get_resource_string("Resources/Shaders/debug.vert"), "debug.vert");
+	debug.add_shader(get_resource_string("Resources/Shaders/debug.frag"), "debug.frag");
+	ctxt.vuk_context->create_named_pipeline("debug", debug);
+
 	CascadedShadowRenderPass::setup(ctxt);
+	SSAODepthPass::setup(ctxt);
+	GBufferPass::setup(ctxt);
 
 	auto ifc = ctxt.vuk_context->begin();
 	auto ptc = ifc.begin();
+
+	renderer.m_ssao = SSAODepthPass::create(ptc);
 
 	// allocate a large buffer to dump all the model matrices in; this will be used a dynamic UBO for drawing by offsetting into it
 
@@ -75,6 +84,19 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 		ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eUniformBuffer | vuk::BufferUsageFlagBits::eTransferDst,
 										  std::pow(2, 18), renderer.m_transform_buffer_alignment);
 
+	// create the shadow map
+
+	renderer.m_shadow_map = ctxt.vuk_context->allocate_texture(
+		vuk::ImageCreateInfo{.imageType = vuk::ImageType::e2D,
+							 .format = vuk::Format::eD32Sfloat,
+							 .extent = vuk::Extent3D{CascadedShadowRenderPass::DIMENSION, CascadedShadowRenderPass::DIMENSION, 1},
+							 .mipLevels = 1,
+							 .arrayLayers = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT,
+							 .samples = vuk::SampleCountFlagBits::e1,
+							 .tiling = vuk::ImageTiling::eOptimal,
+							 .usage = vuk::ImageUsageFlagBits::eSampled | vuk::ImageUsageFlagBits::eDepthStencilAttachment,
+							 .sharingMode = vuk::SharingMode::eExclusive});
+
 	// load the textures that are going to be used later
 
 	renderer.m_scene.textures.insert("Iron.Albedo", gfx_util::load_mipmapped_texture("Resources/Textures/rust_albedo.jpg", ptc));
@@ -82,6 +104,8 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	renderer.m_scene.textures.insert("Iron.Normal", gfx_util::load_mipmapped_texture("Resources/Textures/rust_normal.jpg", ptc, false));
 	renderer.m_scene.textures.insert("Iron.Roughness", gfx_util::load_mipmapped_texture("Resources/Textures/rust_roughness.jpg", ptc));
 	renderer.m_scene.textures.insert("Iron.AO", gfx_util::load_mipmapped_texture("Resources/Textures/rust_ao.jpg", ptc));
+
+	renderer.m_scene_renderer = SceneRenderer::create(ctxt, renderer.m_scene);
 
 	RenderMesh sphere_rm;
 	sphere_rm.mesh = renderer.m_sphere;
@@ -385,25 +409,15 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 															  .ao = TextureCache::view("Iron.AO")});
 	renderer.m_scene.registry.emplace<TransformComponent>(entity, TransformComponent{});
 
-	/*auto entity2 = renderer.m_scene.registry.create();
-	renderer.m_scene.registry.emplace<MeshComponent>(entity2, MeshCache::view("Cube"),
+	auto entity2 = renderer.m_scene.registry.create();
+	renderer.m_scene.registry.emplace<MeshComponent>(entity2, MeshCache::view("Quad"),
 													 Material{.albedo = TextureCache::view("Iron.Albedo"),
 															  .metallic = TextureCache::view("Iron.Metallic"),
 															  .roughness = TextureCache::view("Iron.Roughness"),
 															  .normal = TextureCache::view("Iron.Normal"),
 															  .ao = TextureCache::view("Iron.AO")});
 	renderer.m_scene.registry.emplace<TransformComponent>(
-		entity2, TransformComponent{}.translate({10, 5, 5}).rotate(glm::angleAxis(glm::degrees(90.f), glm::vec3(1, 0, 0))));*/
-
-	auto entity3 = renderer.m_scene.registry.create();
-	renderer.m_scene.registry.emplace<MeshComponent>(entity3, MeshCache::view("Quad"),
-													 Material{.albedo = TextureCache::view("Iron.Albedo"),
-															  .metallic = TextureCache::view("Iron.Metallic"),
-															  .roughness = TextureCache::view("Iron.Roughness"),
-															  .normal = TextureCache::view("Iron.Normal"),
-															  .ao = TextureCache::view("Iron.AO")});
-	renderer.m_scene.registry.emplace<TransformComponent>(
-		entity3, TransformComponent{}.translate({0, -1, 0}).rotate(glm::eulerAngleXYZ(glm::radians(-90.f), 0.f, 0.f)).scale({3, 3, 3}));
+		entity2, TransformComponent{}.translate({0, -1, 0}).rotate(glm::eulerAngleXYZ(glm::radians(-90.f), 0.f, 0.f)).scale({3, 3, 3}));
 
 	return renderer;
 }
@@ -461,8 +475,10 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 	m_cascaded_shadows.meshes.clear();
 	m_cascaded_shadows.meshes.reserve(meshes_view.size_hint());
 
-	meshes_view.each(
-		[&](MeshComponent& component, TransformComponent& transform) { m_cascaded_shadows.meshes.push_back(&m_scene.meshes.get(component.mesh)); });
+	meshes_view.each([&](MeshComponent& component, TransformComponent& transform) {
+		auto rm = &m_scene.meshes.get(component.mesh);
+		m_cascaded_shadows.meshes.push_back(rm);
+	});
 
 	Cascades cascades;
 
@@ -487,6 +503,15 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 		ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&cascades, 1});
 	auto cascade_ubo = bcascade_ubo;
 
+	m_ssao.cam_proj = uniforms.projection;
+	m_ssao.width = m_ctxt->vkb_swapchain.extent.width;
+	m_ssao.height = m_ctxt->vkb_swapchain.extent.height;
+
+	m_gbuffer.cam_proj = uniforms.projection;
+	m_gbuffer.cam_view = uniforms.view;
+	m_gbuffer.width = m_ctxt->vkb_swapchain.extent.width;
+	m_gbuffer.height = m_ctxt->vkb_swapchain.extent.height;
+
 	u32 offset = 0;
 	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) {
 		ptc.upload(m_transform_buffer.subrange(offset, sizeof(glm::mat4)), std::span{&transform.matrix, 1});
@@ -505,20 +530,11 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 											 .minLod = 0.f,
 											 .maxLod = 16.f};
 
+	m_scene_renderer.update(ptc, m_scene, meshes_view);
+
 	vuk::RenderGraph rg;
 
 	// cascaded depth only pass
-
-	m_shadow_map = m_ctxt->vuk_context->allocate_texture(
-		vuk::ImageCreateInfo{.imageType = vuk::ImageType::e2D,
-							 .format = vuk::Format::eD32Sfloat,
-							 .extent = vuk::Extent3D{1024, 1024, 1},
-							 .mipLevels = 1,
-							 .arrayLayers = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT,
-							 .samples = vuk::SampleCountFlagBits::e1,
-							 .tiling = vuk::ImageTiling::eOptimal,
-							 .usage = vuk::ImageUsageFlagBits::eSampled | vuk::ImageUsageFlagBits::eDepthStencilAttachment,
-							 .sharingMode = vuk::SharingMode::eExclusive});
 
 	for (const auto& pass : m_cascaded_shadows.build(ptc, rg, *m_shadow_map.image)) {
 		rg.add_pass(pass);
@@ -534,22 +550,38 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 																				.baseArrayLayer = 0,
 																				.layerCount = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT}});
 
+	// gbuffer pass
+
+	m_gbuffer.build(ptc, rg, m_scene_renderer);
+
+	// ssao pass
+
+	m_ssao.build(ptc, rg);
+
 	// color pass
 
-	rg.add_pass({.resources = {"pbr_msaa"_image(vuk::eColorWrite), "pbr_depth"_image(vuk::eDepthStencilRW)},
-				 .execute = [this, meshes_view, map_sampler, ubo, cascade_ubo](vuk::CommandBuffer& cbuf) {
+	struct PushConstants {
+		glm::vec3 cam_pos;
+		f32 _pad;
+		glm::vec2 screen_size;
+	} push_consts{m_cam_pos, 0.f, glm::vec2{m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height}};
+
+	rg.add_pass({.resources = {"pbr_msaa"_image(vuk::eColorWrite), "pbr_depth"_image(vuk::eDepthStencilRW), "ssao_blurred"_image(vuk::eFragmentSampled)},
+				 .execute = [this, meshes_view, map_sampler, ubo, cascade_ubo, push_consts](vuk::CommandBuffer& cbuf) {
+					 const auto sci = vuk::SamplerCreateInfo{.addressModeU = vuk::SamplerAddressMode::eClampToBorder,
+															 .addressModeV = vuk::SamplerAddressMode::eClampToBorder,
+															 .addressModeW = vuk::SamplerAddressMode::eClampToBorder};
+
 					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 						 .set_scissor(0, vuk::Rect2D::framebuffer())
 						 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
-						 .push_constants(vuk::ShaderStageFlagBits::eFragment, 0, m_cam_pos)
+						 .push_constants(vuk::ShaderStageFlagBits::eFragment, 0, push_consts)
 						 .bind_sampled_image(0, 1, *m_irradiance_cubemap_iv, m_irradiance_cubemap.second)
 						 .bind_sampled_image(0, 2, *m_prefilter_cubemap_iv, m_prefilter_cubemap.second)
 						 .bind_sampled_image(0, 3, m_brdf_lut.first, m_brdf_lut.second)
-						 .bind_sampled_image(0, 4, *m_shadow_map_view,
-											 vuk::SamplerCreateInfo{.addressModeU = vuk::SamplerAddressMode::eClampToBorder,
-																	.addressModeV = vuk::SamplerAddressMode::eClampToBorder,
-																	.addressModeW = vuk::SamplerAddressMode::eClampToBorder})
-						 .bind_uniform_buffer(0, 5, cascade_ubo)
+						 .bind_sampled_image(0, 4, *m_shadow_map_view, sci)
+						 .bind_sampled_image(0, 5, "ssao_blurred", sci)
+						 .bind_uniform_buffer(0, 6, cascade_ubo)
 						 .bind_graphics_pipeline("pbr")
 						 .bind_uniform_buffer(0, 0, ubo);
 
@@ -574,7 +606,8 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 						.image = *m_shadow_map.image, .image_view = *m_shadow_map_view, .extent = vuk::Extent2D{1024, 1024}, .format = vuk::Format::eD32Sfloat},
 					vuk::Access::eFragmentSampled, vuk::Access::eFragmentSampled);*/
 
-	rg.attach_managed("pbr_msaa", static_cast<vuk::Format>(m_ctxt->vkb_swapchain.image_format), vuk::Dimension2D::framebuffer(), vuk::Samples::e8,
+	rg.attach_managed("pbr_msaa", static_cast<vuk::Format>(m_ctxt->vkb_swapchain.image_format),
+					  vuk::Dimension2D::absolute(m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height), vuk::Samples::e8,
 					  vuk::ClearColor{0.01f, 0.01f, 0.01f, 1.f});
 	rg.attach_managed("pbr_depth", vuk::Format::eD32Sfloat, vuk::Dimension2D::framebuffer(), vuk::Samples::Framebuffer{}, vuk::ClearDepthStencil{1.f, 0});
 	rg.resolve_resource_into("pbr_final", "pbr_msaa");

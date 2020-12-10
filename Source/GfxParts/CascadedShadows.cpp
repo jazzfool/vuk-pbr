@@ -69,8 +69,8 @@ std::array<vuk::Pass, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> Cascad
 		const vuk::Resource layer_resource{m_attachment_names.back(), vuk::Resource::Type::eImage, vuk::eDepthStencilRW};
 
 		pass = vuk::Pass{.resources = {layer_resource}, .execute = [=](vuk::CommandBuffer& cbuf) {
-							 cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, 1024, 1024))
-								 .set_scissor(0, vuk::Rect2D::absolute(0, 0, 1024, 1024))
+							 cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, DIMENSION, DIMENSION))
+								 .set_scissor(0, vuk::Rect2D::absolute(0, 0, DIMENSION, DIMENSION))
 								 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
 								 .bind_graphics_pipeline("depth_only")
 								 .bind_uniform_buffer(0, 0, ubo)
@@ -102,7 +102,7 @@ std::array<vuk::Pass, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> Cascad
 		rg.attach_image(m_attachment_names.back(),
 						vuk::ImageAttachment{.image = out_depths,
 											 .image_view = *m_image_views.back(),
-											 .extent = vuk::Extent2D{1024, 1024},
+											 .extent = vuk::Extent2D{DIMENSION, DIMENSION},
 											 .format = vuk::Format::eD32Sfloat,
 											 .sample_count = vuk::Samples::e1,
 											 .clear_value = vuk::ClearDepthStencil{1.f, 0}},

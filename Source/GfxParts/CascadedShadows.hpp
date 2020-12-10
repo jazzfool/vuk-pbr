@@ -15,6 +15,7 @@
 class CascadedShadowRenderPass {
   public:
 	static constexpr u8 SHADOW_MAP_CASCADE_COUNT = 4;
+	static constexpr u32 DIMENSION = 4096;
 
 	struct CascadeInfo {
 		f32 split_depth;
