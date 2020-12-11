@@ -78,9 +78,9 @@ std::array<vuk::Pass, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> Cascad
 
 							 u64 offset = 0;
 							 for (const auto& mesh : meshes) {
-								 cbuf.bind_vertex_buffer(0, *mesh->verts, 0,
-														 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat},
-																	 vuk::Ignore{vuk::Format::eR32G32Sfloat}})
+								 cbuf.bind_vertex_buffer(
+										 0, *mesh->verts, 0,
+										 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32Sfloat}})
 									 .bind_index_buffer(*mesh->inds, vuk::IndexType::eUint32)
 									 .bind_uniform_buffer(1, 0, transform_buffer.subrange(offset, transform_buffer_alignment));
 								 cbuf.draw_indexed(mesh->mesh.second.size(), 1, 0, 0, 0);

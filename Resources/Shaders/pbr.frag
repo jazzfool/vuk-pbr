@@ -122,9 +122,7 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 float textureProj(vec4 shadowCoord, vec2 offset, uint cascadeIndex, vec3 N)
 {
 	float shadow = 1.0;
-	//float bias = 0.005;
     float bias = 0.005 * tan(acos(clamp(dot(N, normalize(-light_direction)), 0, 1)));
-    bias = clamp(bias, 0, 0.01);
 
 	if (shadowCoord.z > -1.0 && shadowCoord.z < 1.0) {
 		float dist = texture(shadowMap, vec3(shadowCoord.st + offset, cascadeIndex)).r;
@@ -145,7 +143,7 @@ float shadow_calculation(vec3 N) {
         }
     }
 
-    vec4 sc = (biasMat * cascade_view_proj_mats[cascadeIndex]) * vec4(WorldPos, 1.0);
+    vec4 sc = (biasMat * cascade_view_proj_mats[cascadeIndex]) * vec4(WorldPos + Normal * 0.1, 1.0);
     sc = sc / sc.w;
 
 	ivec2 texDim = textureSize(shadowMap, 0).xy;

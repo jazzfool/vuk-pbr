@@ -4,7 +4,8 @@
 // keep this in sync with CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT
 #define SHADOW_MAP_CASCADE_COUNT 4
 
-layout (location = 0) in vec3 aPos;
+layout (location = 0) in vec3 in_pos;
+layout (location = 1) in vec3 in_normal;
 
 layout(set = 0, binding = 0) uniform Uniforms {
     mat4[SHADOW_MAP_CASCADE_COUNT] light_space_mats;
@@ -23,5 +24,9 @@ out gl_PerVertex {
 };
 
 void main() {
-    gl_Position = light_space_mats[cascade_index] * model * vec4(aPos, 1.0);
+    vec3 light_direction = normalize(vec3(0, -2, 1));
+    vec3 pos = in_pos;
+    //pos -= in_normal * 0.01;
+    //pos.z += 0.005 * tan(acos(dot(in_normal, -light_direction)));
+    gl_Position = light_space_mats[cascade_index] * model * vec4(pos, 1.0);
 }
