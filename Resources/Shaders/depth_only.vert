@@ -24,9 +24,5 @@ out gl_PerVertex {
 };
 
 void main() {
-    vec3 light_direction = normalize(vec3(0, -2, 1));
-    vec3 pos = in_pos;
-    //pos -= in_normal * 0.01;
-    //pos.z += 0.005 * tan(acos(dot(in_normal, -light_direction)));
-    gl_Position = light_space_mats[cascade_index] * model * vec4(pos, 1.0);
+    gl_Position = light_space_mats[cascade_index] * model * vec4(in_pos, 1.0);
 }

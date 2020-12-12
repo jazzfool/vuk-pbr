@@ -16,25 +16,23 @@
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
 
-std::optional<Renderer> Renderer::create(Context& ctxt) {
-	Renderer renderer;
-
+void Renderer::init(Context& ctxt) {
 	// initialize simple members
 
-	renderer.m_ctxt = &ctxt;
+	m_ctxt = &ctxt;
 
-	renderer.m_last_x = -1.f;
-	renderer.m_last_y = -1.f;
-	renderer.m_pitch = 0.f;
-	renderer.m_yaw = 0.f;
+	m_last_x = -1.f;
+	m_last_y = -1.f;
+	m_pitch = 0.f;
+	m_yaw = 0.f;
 
-	renderer.m_cam_pos = glm::vec3(0, 0, 3);
-	renderer.m_cam_front = glm::vec3(0, 0, -3);
-	renderer.m_cam_up = glm::vec3(0, 1, 0);
+	m_cam_pos = glm::vec3(0, 0, 3);
+	m_cam_front = glm::vec3(0, 0, -3);
+	m_cam_up = glm::vec3(0, 1, 0);
 
-	renderer.m_sphere = load_obj("Resources/Meshes/Pillars.obj");
-	renderer.m_cube = generate_cube();
-	renderer.m_quad = generate_quad();
+	m_sphere = load_obj("Resources/Meshes/Pillars.obj");
+	m_cube = generate_cube();
+	m_quad = generate_quad();
 
 	// create the pipelines that are going to be used later
 
@@ -76,77 +74,54 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	auto ifc = ctxt.vuk_context->begin();
 	auto ptc = ifc.begin();
 
-	renderer.m_ssao = SSAODepthPass::create(ptc);
-	renderer.m_volumetric_light = VolumetricLightPass::create(ctxt, ptc);
+	m_cascaded_shadows.init(ptc, ctxt);
+	m_ssao.init(ptc);
+	m_volumetric_light.init(ctxt, ptc);
 
 	// allocate a large buffer to dump all the model matrices in; this will be used a dynamic UBO for drawing by offsetting into it
 
-	renderer.m_transform_buffer_alignment = std::max(ctxt.vkb_physical_device.properties.limits.minUniformBufferOffsetAlignment, sizeof(glm::mat4));
-	renderer.m_transform_buffer =
+	m_transform_buffer_alignment = std::max(ctxt.vkb_physical_device.properties.limits.minUniformBufferOffsetAlignment, sizeof(glm::mat4));
+	m_transform_buffer =
 		ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eUniformBuffer | vuk::BufferUsageFlagBits::eTransferDst,
-										  std::pow(2, 18), renderer.m_transform_buffer_alignment);
-
-	// create the shadow map
-
-	renderer.m_shadow_map = ctxt.vuk_context->allocate_texture(
-		vuk::ImageCreateInfo{.imageType = vuk::ImageType::e2D,
-							 .format = vuk::Format::eD32Sfloat,
-							 .extent = vuk::Extent3D{CascadedShadowRenderPass::DIMENSION, CascadedShadowRenderPass::DIMENSION, 1},
-							 .mipLevels = 1,
-							 .arrayLayers = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT,
-							 .samples = vuk::SampleCountFlagBits::e1,
-							 .tiling = vuk::ImageTiling::eOptimal,
-							 .usage = vuk::ImageUsageFlagBits::eSampled | vuk::ImageUsageFlagBits::eDepthStencilAttachment,
-							 .sharingMode = vuk::SharingMode::eExclusive});
-
-	renderer.m_shadow_map_view = ptc.create_image_view(
-		vuk::ImageViewCreateInfo{.image = *renderer.m_shadow_map.image,
-								 .viewType = vuk::ImageViewType::e2DArray,
-								 .format = vuk::Format::eD32Sfloat,
-								 .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eDepth,
-																				.baseMipLevel = 0,
-																				.levelCount = 1,
-																				.baseArrayLayer = 0,
-																				.layerCount = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT}});
+										  std::pow(2, 18), m_transform_buffer_alignment);
 
 	// load the textures that are going to be used later
 
-	renderer.m_scene.textures.insert("Iron.Albedo", gfx_util::load_mipmapped_texture("Resources/Textures/rust_albedo.jpg", ptc));
-	renderer.m_scene.textures.insert("Iron.Metallic", gfx_util::load_mipmapped_texture("Resources/Textures/rust_metallic.png", ptc));
-	renderer.m_scene.textures.insert("Iron.Normal", gfx_util::load_mipmapped_texture("Resources/Textures/rust_normal.jpg", ptc, false));
-	renderer.m_scene.textures.insert("Iron.Roughness", gfx_util::load_mipmapped_texture("Resources/Textures/rust_roughness.jpg", ptc));
-	renderer.m_scene.textures.insert("Iron.AO", gfx_util::load_mipmapped_texture("Resources/Textures/rust_ao.jpg", ptc));
+	m_scene.textures.insert("Iron.Albedo", gfx_util::load_mipmapped_texture("Resources/Textures/rust_albedo.jpg", ptc));
+	m_scene.textures.insert("Iron.Metallic", gfx_util::load_mipmapped_texture("Resources/Textures/rust_metallic.png", ptc));
+	m_scene.textures.insert("Iron.Normal", gfx_util::load_mipmapped_texture("Resources/Textures/rust_normal.jpg", ptc, false));
+	m_scene.textures.insert("Iron.Roughness", gfx_util::load_mipmapped_texture("Resources/Textures/rust_roughness.jpg", ptc));
+	m_scene.textures.insert("Iron.AO", gfx_util::load_mipmapped_texture("Resources/Textures/rust_ao.jpg", ptc));
 
-	renderer.m_scene_renderer = SceneRenderer::create(ctxt, renderer.m_scene);
+	m_scene_renderer = SceneRenderer::create(ctxt, m_scene);
 
 	RenderMesh sphere_rm;
-	sphere_rm.mesh = renderer.m_sphere;
+	sphere_rm.mesh = m_sphere;
 	sphere_rm.upload(ptc);
-	renderer.m_scene.meshes.insert("Sphere", std::move(sphere_rm));
+	m_scene.meshes.insert("Sphere", std::move(sphere_rm));
 
 	RenderMesh cube_rm;
-	cube_rm.mesh = renderer.m_cube;
+	cube_rm.mesh = m_cube;
 	cube_rm.upload(ptc);
-	renderer.m_scene.meshes.insert("Cube", std::move(cube_rm));
+	m_scene.meshes.insert("Cube", std::move(cube_rm));
 
 	RenderMesh quad_rm;
-	quad_rm.mesh = renderer.m_quad;
+	quad_rm.mesh = m_quad;
 	quad_rm.upload(ptc);
-	renderer.m_scene.meshes.insert("Quad", std::move(quad_rm));
+	m_scene.meshes.insert("Quad", std::move(quad_rm));
 
-	renderer.m_hdr_texture = gfx_util::load_cubemap_texture("Resources/Textures/forest_slope_1k.hdr", ptc);
+	m_hdr_texture = gfx_util::load_cubemap_texture("Resources/Textures/forest_slope_1k.hdr", ptc);
 
 	// m_hdr_texture is a 2:1 equirectangular; it needs to be converted to a cubemap
 
-	renderer.m_env_cubemap =
-		std::make_pair(gfx_util::alloc_cubemap(512, 512, ptc), vuk::SamplerCreateInfo{.magFilter = vuk::Filter::eLinear,
-																					  .minFilter = vuk::Filter::eLinear,
-																					  .mipmapMode = vuk::SamplerMipmapMode::eLinear,
-																					  .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
-																					  .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
-																					  .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
-																					  .minLod = 0.f,
-																					  .maxLod = 0.f});
+	m_env_cubemap = std::make_pair(gfx_util::alloc_cubemap(512, 512, ptc), vuk::SamplerCreateInfo{.magFilter = vuk::Filter::eLinear,
+																								  .minFilter = vuk::Filter::eLinear,
+																								  .mipmapMode = vuk::SamplerMipmapMode::eLinear,
+																								  .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
+																								  .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
+																								  .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
+																								  .minLod = 0.f,
+																								  .maxLod = 0.f});
 
 	const glm::mat4 capture_projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
 	const glm::mat4 capture_views[] = {glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
@@ -158,17 +133,15 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 
 	// upload the cube mesh
 
-	auto [bverts, stub1] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer,
-													 std::span(&renderer.m_cube.first[0], renderer.m_cube.first.size()));
+	auto [bverts, stub1] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer, std::span{m_cube.first});
 	auto verts = std::move(bverts);
-	auto [binds, stub2] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer,
-													std::span(&renderer.m_cube.second[0], renderer.m_cube.second.size()));
+	auto [binds, stub2] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer, std::span{m_cube.second});
 	auto inds = std::move(binds);
 
 	ptc.wait_all_transfers();
 
 	{
-		vuk::ImageViewCreateInfo ivci{.image = *renderer.m_env_cubemap.first.image,
+		vuk::ImageViewCreateInfo ivci{.image = *m_env_cubemap.first.image,
 									  .viewType = vuk::ImageViewType::e2D,
 									  .format = vuk::Format::eR32G32B32A32Sfloat,
 									  .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eColor, .layerCount = 1}};
@@ -182,7 +155,7 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 													 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat},
 																 vuk::Ignore{vuk::Format::eR32G32Sfloat}})
 								 .bind_index_buffer(inds, vuk::IndexType::eUint32)
-								 .bind_sampled_image(0, 2, renderer.m_hdr_texture,
+								 .bind_sampled_image(0, 2, m_hdr_texture,
 													 vuk::SamplerCreateInfo{.magFilter = vuk::Filter::eLinear,
 																			.minFilter = vuk::Filter::eLinear,
 																			.mipmapMode = vuk::SamplerMipmapMode::eLinear,
@@ -194,7 +167,7 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 							 *projection = capture_projection;
 							 glm::mat4* view = cbuf.map_scratch_uniform_binding<glm::mat4>(0, 1);
 							 *view = capture_views[i];
-							 cbuf.draw_indexed(renderer.m_cube.second.size(), 1, 0, 0, 0);
+							 cbuf.draw_indexed(m_cube.second.size(), 1, 0, 0, 0);
 						 }});
 
 			ivci.subresourceRange.baseArrayLayer = i;
@@ -202,7 +175,7 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 
 			rg.attach_image("env_cubemap_face",
 							vuk::ImageAttachment{
-								.image = *renderer.m_env_cubemap.first.image,
+								.image = *m_env_cubemap.first.image,
 								.image_view = *iv,
 								.extent = vuk::Extent2D{512, 512},
 								.format = vuk::Format::eR32G32B32A32Sfloat,
@@ -213,8 +186,8 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 			vuk::execute_submit_and_wait(ptc, std::move(erg));
 		}
 
-		renderer.m_env_cubemap_iv = ptc.create_image_view(
-			vuk::ImageViewCreateInfo{.image = *renderer.m_env_cubemap.first.image,
+		m_env_cubemap_iv = ptc.create_image_view(
+			vuk::ImageViewCreateInfo{.image = *m_env_cubemap.first.image,
 									 .viewType = vuk::ImageViewType::eCube,
 									 .format = vuk::Format::eR32G32B32A32Sfloat,
 									 .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eColor, .layerCount = 6}});
@@ -223,14 +196,14 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	// filter this new cubemap to make an irradiance cubemap (for light emission)
 
 	{
-		renderer.m_irradiance_cubemap =
+		m_irradiance_cubemap =
 			std::make_pair(gfx_util::alloc_cubemap(32, 32, ptc), vuk::SamplerCreateInfo{.magFilter = vuk::Filter::eLinear,
 																						.minFilter = vuk::Filter::eLinear,
 																						.addressModeU = vuk::SamplerAddressMode::eClampToEdge,
 																						.addressModeV = vuk::SamplerAddressMode::eClampToEdge,
 																						.addressModeW = vuk::SamplerAddressMode::eClampToEdge});
 
-		vuk::ImageViewCreateInfo ivci{.image = *renderer.m_irradiance_cubemap.first.image,
+		vuk::ImageViewCreateInfo ivci{.image = *m_irradiance_cubemap.first.image,
 									  .viewType = vuk::ImageViewType::e2D,
 									  .format = vuk::Format::eR32G32B32A32Sfloat,
 									  .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eColor, .layerCount = 1}};
@@ -244,20 +217,20 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 													 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat},
 																 vuk::Ignore{vuk::Format::eR32G32Sfloat}})
 								 .bind_index_buffer(inds, vuk::IndexType::eUint32)
-								 .bind_sampled_image(0, 2, *renderer.m_env_cubemap_iv, renderer.m_env_cubemap.second)
+								 .bind_sampled_image(0, 2, *m_env_cubemap_iv, m_env_cubemap.second)
 								 .bind_graphics_pipeline("irradiance");
 							 glm::mat4* projection = cbuf.map_scratch_uniform_binding<glm::mat4>(0, 0);
 							 *projection = capture_projection;
 							 glm::mat4* view = cbuf.map_scratch_uniform_binding<glm::mat4>(0, 1);
 							 *view = capture_views[i];
-							 cbuf.draw_indexed(renderer.m_cube.second.size(), 1, 0, 0, 0);
+							 cbuf.draw_indexed(m_cube.second.size(), 1, 0, 0, 0);
 						 }});
 
 			ivci.subresourceRange.baseArrayLayer = i;
 			auto iv = ptc.create_image_view(ivci);
 
 			vuk::ImageAttachment attachment;
-			attachment.image = *renderer.m_irradiance_cubemap.first.image;
+			attachment.image = *m_irradiance_cubemap.first.image;
 			attachment.image_view = *iv;
 			attachment.extent = vuk::Extent2D{32, 32};
 			attachment.format = vuk::Format::eR32G32B32A32Sfloat;
@@ -273,12 +246,12 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 		img_subres_range.layerCount = 6;
 
 		vuk::ImageViewCreateInfo ivci_irradiance;
-		ivci_irradiance.image = *renderer.m_irradiance_cubemap.first.image;
+		ivci_irradiance.image = *m_irradiance_cubemap.first.image;
 		ivci_irradiance.viewType = vuk::ImageViewType::eCube;
 		ivci_irradiance.format = vuk::Format::eR32G32B32A32Sfloat;
 		ivci_irradiance.subresourceRange = img_subres_range;
 
-		renderer.m_irradiance_cubemap_iv = ptc.create_image_view(ivci_irradiance);
+		m_irradiance_cubemap_iv = ptc.create_image_view(ivci_irradiance);
 	}
 
 	// filter it again to create a prefiltered cubemap (for specular reflections at varying roughness levels)
@@ -294,9 +267,9 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 		sci.minLod = 0.f;
 		sci.maxLod = 4.f;
 
-		renderer.m_prefilter_cubemap = std::make_pair(gfx_util::alloc_cubemap(128, 128, ptc, 5), sci);
+		m_prefilter_cubemap = std::make_pair(gfx_util::alloc_cubemap(128, 128, ptc, 5), sci);
 
-		vuk::ImageViewCreateInfo ivci{.image = *renderer.m_prefilter_cubemap.first.image,
+		vuk::ImageViewCreateInfo ivci{.image = *m_prefilter_cubemap.first.image,
 									  .viewType = vuk::ImageViewType::e2D,
 									  .format = vuk::Format::eR32G32B32A32Sfloat,
 									  .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eColor, .layerCount = 1}};
@@ -317,7 +290,7 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 														 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat},
 																	 vuk::Ignore{vuk::Format::eR32G32Sfloat}})
 									 .bind_index_buffer(inds, vuk::IndexType::eUint32)
-									 .bind_sampled_image(0, 2, *renderer.m_env_cubemap_iv,
+									 .bind_sampled_image(0, 2, *m_env_cubemap_iv,
 														 vuk::SamplerCreateInfo{.magFilter = vuk::Filter::eLinear,
 																				.minFilter = vuk::Filter::eLinear,
 																				.addressModeU = vuk::SamplerAddressMode::eClampToEdge,
@@ -330,14 +303,14 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 								 *view = capture_views[i];
 								 float* r = cbuf.map_scratch_uniform_binding<float>(0, 3);
 								 *r = roughness;
-								 cbuf.draw_indexed(renderer.m_cube.second.size(), 1, 0, 0, 0);
+								 cbuf.draw_indexed(m_cube.second.size(), 1, 0, 0, 0);
 							 }});
 
 				ivci.subresourceRange.baseArrayLayer = i;
 				auto iv = ptc.create_image_view(ivci);
 
 				vuk::ImageAttachment attachment;
-				attachment.image = *renderer.m_prefilter_cubemap.first.image;
+				attachment.image = *m_prefilter_cubemap.first.image;
 				attachment.image_view = *iv;
 				attachment.extent = vuk::Extent2D{mip_wh, mip_wh};
 				attachment.format = vuk::Format::eR32G32B32A32Sfloat;
@@ -349,8 +322,8 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 			}
 		}
 
-		renderer.m_prefilter_cubemap_iv = ptc.create_image_view(vuk::ImageViewCreateInfo{
-			.image = *renderer.m_prefilter_cubemap.first.image,
+		m_prefilter_cubemap_iv = ptc.create_image_view(vuk::ImageViewCreateInfo{
+			.image = *m_prefilter_cubemap.first.image,
 			.viewType = vuk::ImageViewType::eCube,
 			.format = vuk::Format::eR32G32B32A32Sfloat,
 			.subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eColor, .levelCount = 4, .layerCount = 6}});
@@ -359,26 +332,24 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	// integrate BRDF into a LUT
 
 	{
-		renderer.m_brdf_lut = std::make_pair(gfx_util::alloc_lut(512, 512, ptc), vuk::SamplerCreateInfo{
-																					 .magFilter = vuk::Filter::eLinear,
-																					 .minFilter = vuk::Filter::eLinear,
-																					 .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
-																					 .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
-																					 .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
-																				 });
+		m_brdf_lut = std::make_pair(gfx_util::alloc_lut(512, 512, ptc), vuk::SamplerCreateInfo{
+																			.magFilter = vuk::Filter::eLinear,
+																			.minFilter = vuk::Filter::eLinear,
+																			.addressModeU = vuk::SamplerAddressMode::eClampToEdge,
+																			.addressModeV = vuk::SamplerAddressMode::eClampToEdge,
+																			.addressModeW = vuk::SamplerAddressMode::eClampToEdge,
+																		});
 
-		vuk::ImageViewCreateInfo ivci{.image = *renderer.m_brdf_lut.first.image,
+		vuk::ImageViewCreateInfo ivci{.image = *m_brdf_lut.first.image,
 									  .viewType = vuk::ImageViewType::e2D,
 									  .format = vuk::Format::eR16G16Sfloat,
 									  .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eColor}};
 
 		// upload the quad mesh
 
-		auto [bqverts, _s1] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer,
-														std::span(&renderer.m_quad.first[0], renderer.m_quad.first.size()));
+		auto [bqverts, _s1] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer, std::span{m_quad.first});
 		auto qverts = std::move(bqverts);
-		auto [qbinds, _s2] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer,
-													   std::span(&renderer.m_quad.second[0], renderer.m_quad.second.size()));
+		auto [qbinds, _s2] = ptc.create_scratch_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer, std::span{m_quad.second});
 		auto qinds = std::move(qbinds);
 
 		ptc.wait_all_transfers();
@@ -393,14 +364,14 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 									 vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat}, vuk::Format::eR32G32Sfloat})
 								 .bind_index_buffer(qinds, vuk::IndexType::eUint32)
 								 .bind_graphics_pipeline("brdf");
-							 cbuf.draw_indexed(renderer.m_quad.second.size(), 1, 0, 0, 0);
+							 cbuf.draw_indexed(m_quad.second.size(), 1, 0, 0, 0);
 						 }});
 
 			auto iv = ptc.create_image_view(ivci);
 
 			rg.attach_image("brdf_out",
 							vuk::ImageAttachment{
-								.image = *renderer.m_brdf_lut.first.image,
+								.image = *m_brdf_lut.first.image,
 								.image_view = *iv,
 								.extent = vuk::Extent2D{512, 512},
 								.format = vuk::Format::eR16G16Sfloat,
@@ -412,26 +383,24 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 		}
 	}
 
-	auto entity = renderer.m_scene.registry.create();
-	renderer.m_scene.registry.emplace<MeshComponent>(entity, MeshCache::view("Sphere"),
-													 Material{.albedo = TextureCache::view("Iron.Albedo"),
-															  .metallic = TextureCache::view("Iron.Metallic"),
-															  .roughness = TextureCache::view("Iron.Roughness"),
-															  .normal = TextureCache::view("Iron.Normal"),
-															  .ao = TextureCache::view("Iron.AO")});
-	renderer.m_scene.registry.emplace<TransformComponent>(entity, TransformComponent{});
+	auto entity = m_scene.registry.create();
+	m_scene.registry.emplace<MeshComponent>(entity, MeshCache::view("Sphere"),
+											Material{.albedo = TextureCache::view("Iron.Albedo"),
+													 .metallic = TextureCache::view("Iron.Metallic"),
+													 .roughness = TextureCache::view("Iron.Roughness"),
+													 .normal = TextureCache::view("Iron.Normal"),
+													 .ao = TextureCache::view("Iron.AO")});
+	m_scene.registry.emplace<TransformComponent>(entity, TransformComponent{});
 
-	auto entity2 = renderer.m_scene.registry.create();
-	renderer.m_scene.registry.emplace<MeshComponent>(entity2, MeshCache::view("Quad"),
-													 Material{.albedo = TextureCache::view("Iron.Albedo"),
-															  .metallic = TextureCache::view("Iron.Metallic"),
-															  .roughness = TextureCache::view("Iron.Roughness"),
-															  .normal = TextureCache::view("Iron.Normal"),
-															  .ao = TextureCache::view("Iron.AO")});
-	renderer.m_scene.registry.emplace<TransformComponent>(
+	auto entity2 = m_scene.registry.create();
+	m_scene.registry.emplace<MeshComponent>(entity2, MeshCache::view("Quad"),
+											Material{.albedo = TextureCache::view("Iron.Albedo"),
+													 .metallic = TextureCache::view("Iron.Metallic"),
+													 .roughness = TextureCache::view("Iron.Roughness"),
+													 .normal = TextureCache::view("Iron.Normal"),
+													 .ao = TextureCache::view("Iron.AO")});
+	m_scene.registry.emplace<TransformComponent>(
 		entity2, TransformComponent{}.translate({0, -1, 0}).rotate(glm::eulerAngleXYZ(glm::radians(-90.f), 0.f, 0.f)).scale({3, 3, 3}));
-
-	return renderer;
 }
 
 void Renderer::update() {
@@ -483,32 +452,21 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 
 	Uniforms uniforms;
 
-	uniforms.projection = cam_perspective.matrix();
-	uniforms.projection[1][1] *= -1.f; // flip the projection so it renders the right way up
+	uniforms.projection = cam_perspective.matrix(true);
 	uniforms.view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
 
 	auto [bubo, stub3] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span(&uniforms, 1));
 	auto ubo = bubo;
-
-	m_cascaded_shadows.meshes.clear();
-	m_cascaded_shadows.meshes.reserve(meshes_view.size_hint());
-
-	meshes_view.each([&](MeshComponent& component, TransformComponent& transform) {
-		auto rm = &m_scene.meshes.get(component.mesh);
-		m_cascaded_shadows.meshes.push_back(rm);
-	});
 
 	Cascades cascades;
 
 	cascades.light_direction = LIGHT_DIRECTION;
 
 	m_cascaded_shadows.light_direction = LIGHT_DIRECTION;
-	m_cascaded_shadows.cam_proj = uniforms.projection;
+	m_cascaded_shadows.cam_proj = cam_perspective;
 	m_cascaded_shadows.cam_view = uniforms.view;
 	m_cascaded_shadows.cam_near = 0.1f;
 	m_cascaded_shadows.cam_far = 10.f;
-	m_cascaded_shadows.transform_buffer = m_transform_buffer;
-	m_cascaded_shadows.transform_buffer_alignment = m_transform_buffer_alignment;
 
 	auto computed_cascades = m_cascaded_shadows.compute_cascades();
 
@@ -534,7 +492,7 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 	m_volumetric_light.height = m_ctxt->vkb_swapchain.extent.height;
 	m_volumetric_light.cam_proj = cam_perspective;
 	m_volumetric_light.cam_view = uniforms.view;
-	m_volumetric_light.shadow_map = *m_shadow_map_view;
+	m_volumetric_light.shadow_map = m_cascaded_shadows.shadow_map_view();
 	m_volumetric_light.light_direction = LIGHT_DIRECTION;
 	m_volumetric_light.cam_pos = m_cam_pos;
 	m_volumetric_light.cam_forward = m_cam_front;
@@ -565,9 +523,7 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 
 	// cascaded depth only pass
 
-	for (const auto& pass : m_cascaded_shadows.build(ptc, rg, *m_shadow_map.image)) {
-		rg.add_pass(pass);
-	}
+	m_cascaded_shadows.build(ptc, rg, m_scene_renderer);
 
 	// gbuffer pass
 
@@ -596,14 +552,14 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 															 .addressModeV = vuk::SamplerAddressMode::eClampToBorder,
 															 .addressModeW = vuk::SamplerAddressMode::eClampToBorder};
 
-					 cbuf.set_viewport(0, vuk::Rect2D::relative(0.f, 1.f, 1.f, -1.f))
+					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 						 .set_scissor(0, vuk::Rect2D::framebuffer())
 						 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
 						 .push_constants(vuk::ShaderStageFlagBits::eFragment, 0, push_consts)
 						 .bind_sampled_image(0, 1, *m_irradiance_cubemap_iv, m_irradiance_cubemap.second)
 						 .bind_sampled_image(0, 2, *m_prefilter_cubemap_iv, m_prefilter_cubemap.second)
 						 .bind_sampled_image(0, 3, m_brdf_lut.first, m_brdf_lut.second)
-						 .bind_sampled_image(0, 4, *m_shadow_map_view, sci)
+						 .bind_sampled_image(0, 4, m_cascaded_shadows.shadow_map_view(), sci)
 						 .bind_sampled_image(0, 5, "ssao_blurred", sci)
 						 .bind_sampled_image(0, 6, "volumetric_light_blurred", sci)
 						 .bind_uniform_buffer(0, 7, cascade_ubo)
@@ -625,11 +581,6 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 						 offset += m_transform_buffer_alignment;
 					 });
 				 }});
-
-	/*rg.attach_image("shadow_map",
-					vuk::ImageAttachment{
-						.image = *m_shadow_map.image, .image_view = *m_shadow_map_view, .extent = vuk::Extent2D{1024, 1024}, .format = vuk::Format::eD32Sfloat},
-					vuk::Access::eFragmentSampled, vuk::Access::eFragmentSampled);*/
 
 	rg.attach_managed("pbr_msaa", static_cast<vuk::Format>(m_ctxt->vkb_swapchain.image_format),
 					  vuk::Dimension2D::absolute(m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height), vuk::Samples::e8,

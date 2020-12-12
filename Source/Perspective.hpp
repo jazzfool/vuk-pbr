@@ -10,6 +10,6 @@ struct Perspective {
 	f32 near;
 	f32 far;
 
-	glm::mat4 matrix(bool flip = true) const;
+	glm::mat4 matrix(bool flip = false) const;
 	f32 fovx() const;
 };

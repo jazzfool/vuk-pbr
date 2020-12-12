@@ -16,7 +16,7 @@
 
 class Renderer {
   public:
-	static std::optional<Renderer> create(struct Context& ctxt);
+	void init(struct Context& ctxt);
 
 	void update();
 	void render();
@@ -32,14 +32,10 @@ class Renderer {
 	SceneRenderer m_scene_renderer;
 
 	CascadedShadowRenderPass m_cascaded_shadows;
-	vuk::Texture m_shadow_map;
-	vuk::Unique<vuk::ImageView> m_shadow_map_view;
-
 	SSAODepthPass m_ssao;
 	GBufferPass m_gbuffer;
 	VolumetricLightPass m_volumetric_light;
 
-	f32 m_angle;
 	f64 m_last_x;
 	f64 m_last_y;
 	f32 m_pitch;

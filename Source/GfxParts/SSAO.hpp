@@ -23,8 +23,8 @@ class SSAODepthPass {
 	static constexpr u16 KERNEL_SIZE = 64;
 
 	static void setup(struct Context& ctxt);
-	static SSAODepthPass create(vuk::PerThreadContext& ptc);
 
+	void init(vuk::PerThreadContext& ptc);
 	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg);
 
 	Perspective cam_proj;

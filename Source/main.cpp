@@ -6,7 +6,8 @@
 int main() {
 	auto ctxt = Context::create();
 
-	auto renderer = Renderer::create(*ctxt);
+	auto renderer = std::make_optional<Renderer>();
+	renderer->init(*ctxt);
 
 	glfwSetWindowUserPointer(ctxt->window, &*renderer);
 	glfwSetInputMode(ctxt->window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);

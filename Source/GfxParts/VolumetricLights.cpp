@@ -18,31 +18,27 @@ void VolumetricLightPass::setup(Context& ctxt) {
 	ctxt.vuk_context->create_named_pipeline("volumetric_light_blur", blur);
 }
 
-VolumetricLightPass VolumetricLightPass::create(Context& ctxt, vuk::PerThreadContext& ptc) {
-	VolumetricLightPass vl;
-
-	vl.m_verts = ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer | vuk::BufferUsageFlagBits::eTransferDst,
-												   4, sizeof(Vertex));
-	vl.m_inds = ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer | vuk::BufferUsageFlagBits::eTransferDst,
-												  6, sizeof(u32));
-
-	const auto quad = generate_quad();
-
-	ptc.upload(vl.m_verts, std::span{quad.first});
-	ptc.upload(vl.m_inds, std::span{quad.second});
-
-	ptc.wait_all_transfers();
-
-	return vl;
-}
-
 void VolumetricLightPass::debug(vuk::CommandBuffer& cbuf) {
-	cbuf.set_viewport(0, vuk::Rect2D::relative(0.f, 0.f, 1.f, 1.f))
+	cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 		.set_scissor(0, vuk::Rect2D::framebuffer())
 		.set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
 		.bind_graphics_pipeline("debug")
 		.bind_sampled_image(0, 0, "volumetric_light_blurred", {})
 		.draw(3, 1, 0, 0);
+}
+
+void VolumetricLightPass::init(Context& ctxt, vuk::PerThreadContext& ptc) {
+	m_verts = ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eVertexBuffer | vuk::BufferUsageFlagBits::eTransferDst, 4,
+												sizeof(Vertex));
+	m_inds = ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eGPUonly, vuk::BufferUsageFlagBits::eIndexBuffer | vuk::BufferUsageFlagBits::eTransferDst, 6,
+											   sizeof(u32));
+
+	const auto quad = generate_quad();
+
+	ptc.upload(m_verts, std::span{quad.first});
+	ptc.upload(m_inds, std::span{quad.second});
+
+	ptc.wait_all_transfers();
 }
 
 void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
@@ -70,7 +66,7 @@ void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg
 
 	uniforms.inv_view = glm::inverse(cam_view);
 
-	camera.inv_view_proj = glm::inverse(cam_proj.matrix(false) * cam_view);
+	camera.inv_view_proj = glm::inverse(cam_proj.matrix() * cam_view);
 	camera.clip_range.x = cam_proj.near;
 	camera.clip_range.y = cam_proj.far;
 
@@ -100,7 +96,7 @@ void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg
 
 	rg.add_pass(vuk::Pass{.resources = {"volumetric_light_blurred"_image(vuk::eColorWrite), "volumetric_light"_image(vuk::eFragmentSampled)},
 						  .execute = [this](vuk::CommandBuffer& cbuf) {
-							  cbuf.set_viewport(0, vuk::Rect2D::relative(0.f, 1.f, 1.f, -1.f))
+							  cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 								  .set_scissor(0, vuk::Rect2D::absolute(0, 0, width, height))
 								  .bind_graphics_pipeline("volumetric_light_blur")
 								  .bind_sampled_image(0, 0, "volumetric_light", {})

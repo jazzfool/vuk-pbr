@@ -21,10 +21,8 @@ void SSAODepthPass::setup(Context& ctxt) {
 	ctxt.vuk_context->create_named_pipeline("ssao_blur", blur);
 }
 
-SSAODepthPass SSAODepthPass::create(vuk::PerThreadContext& ptc) {
-	SSAODepthPass ssao;
-
-	ssao.m_random_normal = gfx_util::load_texture("Resources/Textures/random_normal.jpg", ptc, false);
+void SSAODepthPass::init(vuk::PerThreadContext& ptc) {
+	m_random_normal = gfx_util::load_texture("Resources/Textures/random_normal.jpg", ptc, false);
 
 	// generate kernel
 
@@ -38,12 +36,10 @@ SSAODepthPass SSAODepthPass::create(vuk::PerThreadContext& ptc) {
 
 		scale = std::lerp(0.1f, 1.f, scale * scale);
 		sample *= scale;
-		ssao.m_kernel[i] = sample;
+		m_kernel[i] = sample;
 	}
 
 	// TODO(jazzfool): generate noise texture instead of loading it
-
-	return ssao;
 }
 
 void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
@@ -56,7 +52,7 @@ void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
 		uniforms.samples[i] = glm::vec4{m_kernel[i], 1.f};
 	}
 
-	uniforms.projection = cam_proj.matrix(false);
+	uniforms.projection = cam_proj.matrix();
 
 	auto [bubo, stub] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&uniforms, 1});
 	auto ubo = bubo;
@@ -86,19 +82,16 @@ void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
 						  .draw(3, 1, 0, 0);
 				  }};
 
-	auto blur_pass =
-		vuk::Pass{.resources = {"ssao_blurred"_image(vuk::eColorWrite), "ssao"_image(vuk::eFragmentSampled)}, .execute = [](vuk::CommandBuffer& cbuf) {
-					  const auto sci = vuk::SamplerCreateInfo{
-						  .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
-						  .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
-						  .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
-					  };
+	auto blur_pass = vuk::Pass{
+		.resources = {"ssao_blurred"_image(vuk::eColorWrite), "ssao"_image(vuk::eFragmentSampled)}, .execute = [](vuk::CommandBuffer& cbuf) {
+			const auto sci = vuk::SamplerCreateInfo{
+				.addressModeU = vuk::SamplerAddressMode::eClampToEdge,
+				.addressModeV = vuk::SamplerAddressMode::eClampToEdge,
+				.addressModeW = vuk::SamplerAddressMode::eClampToEdge,
+			};
 
-					  cbuf.set_viewport(0, vuk::Rect2D::relative(0.f, 1.f, 1.f, -1.f))
-						  .bind_graphics_pipeline("ssao_blur")
-						  .bind_sampled_image(0, 0, "ssao", sci)
-						  .draw(3, 1, 0, 0);
-				  }};
+			cbuf.set_viewport(0, vuk::Rect2D::framebuffer()).bind_graphics_pipeline("ssao_blur").bind_sampled_image(0, 0, "ssao", sci).draw(3, 1, 0, 0);
+		}};
 
 	rg.add_pass(ssao_pass);
 	rg.add_pass(blur_pass);

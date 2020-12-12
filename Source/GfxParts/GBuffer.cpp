@@ -36,7 +36,7 @@ void GBufferPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const 
 	struct Uniforms {
 		glm::mat4 proj;
 		glm::mat4 view;
-	} uniforms{cam_proj.matrix(false), cam_view};
+	} uniforms{cam_proj.matrix(), cam_view};
 
 	auto [bubo, stub] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&uniforms, 1});
 	auto ubo = bubo;

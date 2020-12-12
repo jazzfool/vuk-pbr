@@ -21,10 +21,9 @@ class PerThreadContext;
 class VolumetricLightPass {
   public:
 	static void setup(struct Context& ctxt);
-	static VolumetricLightPass create(struct Context& ctxt, vuk::PerThreadContext& ptc);
-
 	static void debug(vuk::CommandBuffer& cbuf);
 
+	void init(struct Context& ctxt, vuk::PerThreadContext& ptc);
 	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg);
 
 	u32 width, height;

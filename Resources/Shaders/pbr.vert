@@ -1,14 +1,14 @@
 #version 450
 #pragma shader_stage(vertex)
 
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aNormal;
-layout (location = 2) in vec2 aTexCoords;
+layout (location = 0) in vec3 in_pos;
+layout (location = 1) in vec3 in_normal;
+layout (location = 2) in vec2 in_uv;
 
-layout (location = 0) out vec2 TexCoords;
-layout (location = 1) out vec3 WorldPos;
-layout (location = 2) out vec3 Normal;
-layout (location = 3) out vec3 MvWorldPos;
+layout (location = 0) out vec2 out_uv;
+layout (location = 1) out vec3 out_pos;
+layout (location = 2) out vec3 out_normal;
+layout (location = 3) out vec3 out_mv_pos;
 
 layout(set = 0, binding = 0) uniform Uniforms {
     mat4 projection;
@@ -24,11 +24,11 @@ out gl_PerVertex {
 };
 
 void main() {
-    TexCoords = aTexCoords;
-    vec4 locPos = model * vec4(aPos, 1.0);
-    WorldPos = locPos.xyz / locPos.w;
-    Normal = normalize(transpose(inverse(mat3(model))) * aNormal);
-    MvWorldPos = (view * vec4(WorldPos, 1.0)).xyz;
+    out_uv = in_uv;
+    vec4 locPos = model * vec4(in_pos, 1.0);
+    out_pos = locPos.xyz / locPos.w;
+    out_normal = normalize(transpose(inverse(mat3(model))) * in_normal);
+    out_mv_pos = (view * vec4(out_pos, 1.0)).xyz;
 
-    gl_Position = projection * view * vec4(WorldPos, 1.0);
+    gl_Position = projection * view * vec4(out_pos, 1.0);
 }

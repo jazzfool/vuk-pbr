@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Types.hpp"
+#include "../Perspective.hpp"
 
 #include <vuk/RenderGraph.hpp>
 #include <glm/mat4x4.hpp>
@@ -23,27 +24,28 @@ class CascadedShadowRenderPass {
 	};
 
 	static void setup(struct Context& ctxt);
-	static void debug_shadow_map(vuk::CommandBuffer& cbuf, const vuk::ImageView& shadow_map, const struct RenderMesh& quad, u8 cascade);
 
 	CascadedShadowRenderPass();
 
-	std::array<vuk::Pass, SHADOW_MAP_CASCADE_COUNT> build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, vuk::Image out_depths);
+	void init(vuk::PerThreadContext& ptc, struct Context& ctxt);
+	void debug(vuk::CommandBuffer& cbuf, u8 cascade);
+	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer);
 	std::array<CascadeInfo, SHADOW_MAP_CASCADE_COUNT> compute_cascades();
+	vuk::ImageView shadow_map_view() const;
 
 	f32 cascade_split_lambda;
 
 	glm::vec3 light_direction;
 
-	glm::mat4 cam_proj;
+	Perspective cam_proj;
 	glm::mat4 cam_view;
 	f32 cam_near;
 	f32 cam_far;
 
-	std::vector<struct RenderMesh*> meshes;
-	vuk::Buffer transform_buffer;
-	u32 transform_buffer_alignment;
-
   private:
 	std::vector<std::string> m_attachment_names;
 	std::vector<vuk::Unique<vuk::ImageView>> m_image_views;
+
+	vuk::Texture m_shadow_map;
+	vuk::Unique<vuk::ImageView> m_shadow_map_view;
 };
