@@ -18,10 +18,12 @@ set(Source
     Source/Renderer.cpp
     Source/Scene.cpp
     Source/Frustum.cpp
+    Source/Perspective.cpp
     
     Source/GfxParts/CascadedShadows.cpp
     Source/GfxParts/SSAO.cpp
     Source/GfxParts/GBuffer.cpp
+    Source/GfxParts/VolumetricLights.cpp
 )
 
 set(Resources
@@ -45,6 +47,10 @@ set(Resources
     Resources/Shaders/debug.vert
     Resources/Shaders/debug.frag
     Resources/Shaders/ssao_blur.frag
+    Resources/Shaders/volumetric_light.vert
+    Resources/Shaders/volumetric_light.frag
+    Resources/Shaders/volumetric_light_blur.vert
+    Resources/Shaders/volumetric_light_blur.frag
 
     Resources/Textures/rust_albedo.jpg
     Resources/Textures/rust_metallic.png
@@ -56,6 +62,7 @@ set(Resources
     Resources/Textures/random_normal.jpg
 
     Resources/Meshes/Sphere.obj
+    Resources/Meshes/Pillars.obj
 )
 
 add_executable(vukpbr ${Source})

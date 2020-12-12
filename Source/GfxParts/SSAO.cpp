@@ -56,7 +56,7 @@ void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
 		uniforms.samples[i] = glm::vec4{m_kernel[i], 1.f};
 	}
 
-	uniforms.projection = cam_proj;
+	uniforms.projection = cam_proj.matrix(false);
 
 	auto [bubo, stub] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&uniforms, 1});
 	auto ubo = bubo;
@@ -94,7 +94,10 @@ void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
 						  .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
 					  };
 
-					  cbuf.bind_graphics_pipeline("ssao_blur").bind_sampled_image(0, 0, "ssao", sci).draw(3, 1, 0, 0);
+					  cbuf.set_viewport(0, vuk::Rect2D::relative(0.f, 1.f, 1.f, -1.f))
+						  .bind_graphics_pipeline("ssao_blur")
+						  .bind_sampled_image(0, 0, "ssao", sci)
+						  .draw(3, 1, 0, 0);
 				  }};
 
 	rg.add_pass(ssao_pass);

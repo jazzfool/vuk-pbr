@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Types.hpp"
+#include "../Perspective.hpp"
 
 #include <glm/mat4x4.hpp>
 #include <vuk/Image.hpp>
@@ -25,7 +26,7 @@ class GBufferPass {
 
 	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer);
 
-	glm::mat4 cam_proj;
+	Perspective cam_proj;
 	glm::mat4 cam_view;
 
 	u32 width, height;

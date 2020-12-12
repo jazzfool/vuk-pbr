@@ -7,6 +7,7 @@
 #include "GfxParts/CascadedShadows.hpp"
 #include "GfxParts/SSAO.hpp"
 #include "GfxParts/GBuffer.hpp"
+#include "GfxParts/VolumetricLights.hpp"
 
 #include <glm/vec3.hpp>
 #include <vuk/Image.hpp>
@@ -36,6 +37,7 @@ class Renderer {
 
 	SSAODepthPass m_ssao;
 	GBufferPass m_gbuffer;
+	VolumetricLightPass m_volumetric_light;
 
 	f32 m_angle;
 	f64 m_last_x;

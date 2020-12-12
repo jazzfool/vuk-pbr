@@ -32,7 +32,7 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	renderer.m_cam_front = glm::vec3(0, 0, -3);
 	renderer.m_cam_up = glm::vec3(0, 1, 0);
 
-	renderer.m_sphere = load_obj("Resources/Meshes/Sphere.obj");
+	renderer.m_sphere = load_obj("Resources/Meshes/Pillars.obj");
 	renderer.m_cube = generate_cube();
 	renderer.m_quad = generate_quad();
 
@@ -71,11 +71,13 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 	CascadedShadowRenderPass::setup(ctxt);
 	SSAODepthPass::setup(ctxt);
 	GBufferPass::setup(ctxt);
+	VolumetricLightPass::setup(ctxt);
 
 	auto ifc = ctxt.vuk_context->begin();
 	auto ptc = ifc.begin();
 
 	renderer.m_ssao = SSAODepthPass::create(ptc);
+	renderer.m_volumetric_light = VolumetricLightPass::create(ctxt, ptc);
 
 	// allocate a large buffer to dump all the model matrices in; this will be used a dynamic UBO for drawing by offsetting into it
 
@@ -96,6 +98,16 @@ std::optional<Renderer> Renderer::create(Context& ctxt) {
 							 .tiling = vuk::ImageTiling::eOptimal,
 							 .usage = vuk::ImageUsageFlagBits::eSampled | vuk::ImageUsageFlagBits::eDepthStencilAttachment,
 							 .sharingMode = vuk::SharingMode::eExclusive});
+
+	renderer.m_shadow_map_view = ptc.create_image_view(
+		vuk::ImageViewCreateInfo{.image = *renderer.m_shadow_map.image,
+								 .viewType = vuk::ImageViewType::e2DArray,
+								 .format = vuk::Format::eD32Sfloat,
+								 .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eDepth,
+																				.baseMipLevel = 0,
+																				.levelCount = 1,
+																				.baseArrayLayer = 0,
+																				.layerCount = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT}});
 
 	// load the textures that are going to be used later
 
@@ -463,9 +475,15 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 
 	auto meshes_view = m_scene.registry.view<MeshComponent, TransformComponent>();
 
+	Perspective cam_perspective;
+	cam_perspective.fovy = glm::radians(60.f);
+	cam_perspective.aspect_ratio = static_cast<f32>(m_ctxt->vkb_swapchain.extent.width) / static_cast<f32>(m_ctxt->vkb_swapchain.extent.height);
+	cam_perspective.near = 0.1f;
+	cam_perspective.far = 10.f;
+
 	Uniforms uniforms;
 
-	uniforms.projection = glm::perspective(glm::radians(60.f), 800.f / 600.f, 0.1f, 10.f);
+	uniforms.projection = cam_perspective.matrix();
 	uniforms.projection[1][1] *= -1.f; // flip the projection so it renders the right way up
 	uniforms.view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
 
@@ -503,14 +521,25 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 		ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&cascades, 1});
 	auto cascade_ubo = bcascade_ubo;
 
-	m_ssao.cam_proj = uniforms.projection;
+	m_ssao.cam_proj = cam_perspective;
 	m_ssao.width = m_ctxt->vkb_swapchain.extent.width;
 	m_ssao.height = m_ctxt->vkb_swapchain.extent.height;
 
-	m_gbuffer.cam_proj = uniforms.projection;
+	m_gbuffer.cam_proj = cam_perspective;
 	m_gbuffer.cam_view = uniforms.view;
 	m_gbuffer.width = m_ctxt->vkb_swapchain.extent.width;
 	m_gbuffer.height = m_ctxt->vkb_swapchain.extent.height;
+
+	m_volumetric_light.width = m_ctxt->vkb_swapchain.extent.width;
+	m_volumetric_light.height = m_ctxt->vkb_swapchain.extent.height;
+	m_volumetric_light.cam_proj = cam_perspective;
+	m_volumetric_light.cam_view = uniforms.view;
+	m_volumetric_light.shadow_map = *m_shadow_map_view;
+	m_volumetric_light.light_direction = LIGHT_DIRECTION;
+	m_volumetric_light.cam_pos = m_cam_pos;
+	m_volumetric_light.cam_forward = m_cam_front;
+	m_volumetric_light.cam_up = m_cam_up;
+	m_volumetric_light.cascades = computed_cascades;
 
 	u32 offset = 0;
 	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) {
@@ -540,16 +569,6 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 		rg.add_pass(pass);
 	}
 
-	m_shadow_map_view = ptc.create_image_view(
-		vuk::ImageViewCreateInfo{.image = *m_shadow_map.image,
-								 .viewType = vuk::ImageViewType::e2DArray,
-								 .format = vuk::Format::eD32Sfloat,
-								 .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eDepth,
-																				.baseMipLevel = 0,
-																				.levelCount = 1,
-																				.baseArrayLayer = 0,
-																				.layerCount = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT}});
-
 	// gbuffer pass
 
 	m_gbuffer.build(ptc, rg, m_scene_renderer);
@@ -557,6 +576,10 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 	// ssao pass
 
 	m_ssao.build(ptc, rg);
+
+	// volumetric light pass
+
+	m_volumetric_light.build(ptc, rg);
 
 	// color pass
 
@@ -566,13 +589,14 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 		glm::vec2 screen_size;
 	} push_consts{m_cam_pos, 0.f, glm::vec2{m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height}};
 
-	rg.add_pass({.resources = {"pbr_msaa"_image(vuk::eColorWrite), "pbr_depth"_image(vuk::eDepthStencilRW), "ssao_blurred"_image(vuk::eFragmentSampled)},
+	rg.add_pass({.resources = {"pbr_msaa"_image(vuk::eColorWrite), "pbr_depth"_image(vuk::eDepthStencilRW), "ssao_blurred"_image(vuk::eFragmentSampled),
+							   "volumetric_light_blurred"_image(vuk::eFragmentSampled)},
 				 .execute = [this, meshes_view, map_sampler, ubo, cascade_ubo, push_consts](vuk::CommandBuffer& cbuf) {
 					 const auto sci = vuk::SamplerCreateInfo{.addressModeU = vuk::SamplerAddressMode::eClampToBorder,
 															 .addressModeV = vuk::SamplerAddressMode::eClampToBorder,
 															 .addressModeW = vuk::SamplerAddressMode::eClampToBorder};
 
-					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
+					 cbuf.set_viewport(0, vuk::Rect2D::relative(0.f, 1.f, 1.f, -1.f))
 						 .set_scissor(0, vuk::Rect2D::framebuffer())
 						 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
 						 .push_constants(vuk::ShaderStageFlagBits::eFragment, 0, push_consts)
@@ -581,7 +605,8 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 						 .bind_sampled_image(0, 3, m_brdf_lut.first, m_brdf_lut.second)
 						 .bind_sampled_image(0, 4, *m_shadow_map_view, sci)
 						 .bind_sampled_image(0, 5, "ssao_blurred", sci)
-						 .bind_uniform_buffer(0, 6, cascade_ubo)
+						 .bind_sampled_image(0, 6, "volumetric_light_blurred", sci)
+						 .bind_uniform_buffer(0, 7, cascade_ubo)
 						 .bind_graphics_pipeline("pbr")
 						 .bind_uniform_buffer(0, 0, ubo);
 

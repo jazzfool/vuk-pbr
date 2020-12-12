@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Types.hpp"
+#include "../Perspective.hpp"
 
 #include <vuk/RenderGraph.hpp>
 #include <glm/mat4x4.hpp>
@@ -26,7 +27,7 @@ class SSAODepthPass {
 
 	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg);
 
-	glm::mat4 cam_proj;
+	Perspective cam_proj;
 	u32 width, height;
 
   private:

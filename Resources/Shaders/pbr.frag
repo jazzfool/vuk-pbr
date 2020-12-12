@@ -22,9 +22,17 @@ layout (set = 0, binding = 1) uniform samplerCube irradianceMap;
 layout (set = 0, binding = 2) uniform samplerCube prefilterMap;
 layout (set = 0, binding = 3) uniform sampler2D brdfLUT;
 layout (set = 0, binding = 4) uniform sampler2DArray shadowMap;
-layout (set = 0, binding = 5) uniform sampler2D g_ssao;
 
-layout (set = 0, binding = 6) uniform Cascades {
+// cool FX
+layout (set = 0, binding = 5) uniform sampler2D g_ssao;
+layout (set = 0, binding = 6) uniform sampler2D g_volumetric_light;
+
+layout(set = 0, binding = 0) uniform Uniforms {
+    mat4 projection;
+    mat4 view;
+} uniforms;
+
+layout (set = 0, binding = 7) uniform Cascades {
     // i can get away with vec4 because float[SHADOW_MAP_CASCADE_COUNT] -> float[4] -> vec4 and thus i don't have to deal with alignment
     vec4 cascade_splits;
     mat4 cascade_view_proj_mats[SHADOW_MAP_CASCADE_COUNT];
@@ -134,6 +142,20 @@ float textureProj(vec4 shadowCoord, vec2 offset, uint cascadeIndex, vec3 N)
 	return shadow;
 }
 
+float texture_proj_2(vec4 shadowCoord, vec2 offset, uint cascadeIndex) {
+    float shadow = 1.0;
+    float bias = 0.005;
+
+	if (shadowCoord.z > -1.0 && shadowCoord.z < 1.0) {
+		float dist = texture(shadowMap, vec3(shadowCoord.st + offset, cascadeIndex)).r;
+		if (shadowCoord.w > 0 && dist < shadowCoord.z - bias) {
+			shadow = 0; // ambient light
+		}
+	}
+
+	return shadow;
+}
+
 // shadows :)
 float shadow_calculation(vec3 N) {
     uint cascadeIndex = 0;
@@ -165,6 +187,46 @@ float shadow_calculation(vec3 N) {
 	return shadowFactor / count;
 }
 
+uint cascade_index_at(vec4 mv_pos) {
+    mv_pos /= mv_pos.w;
+    uint ci = 0;
+    for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i) {
+        if (mv_pos.z < cascade_splits[i]) {
+            ci = i + 1;
+        }
+    }
+    return ci;
+}
+
+vec4 shadow_coord(vec3 pos, uint ci) {
+    vec4 sc = (biasMat * cascade_view_proj_mats[ci]) * vec4(pos, 1.0);
+    sc = sc / sc.w;
+    return sc;
+}
+
+// thanks vinc
+
+vec3 uncharted2_tonemap_partial(vec3 x)
+{
+    float A = 0.15f;
+    float B = 0.50f;
+    float C = 0.10f;
+    float D = 0.20f;
+    float E = 0.02f;
+    float F = 0.30f;
+    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+
+vec3 uncharted2_filmic(vec3 v)
+{
+    float exposure_bias = 2.0f;
+    vec3 curr = uncharted2_tonemap_partial(v * exposure_bias);
+
+    vec3 W = vec3(11.2f);
+    vec3 white_scale = vec3(1.0f) / uncharted2_tonemap_partial(W);
+    return curr * white_scale;
+}
+
 void main()
 {		
     // material properties
@@ -174,6 +236,7 @@ void main()
     float ao = texture(aoMap, TexCoords).r;
 
     float ssao = texture(g_ssao, gl_FragCoord.xy / vec2(screen_size.x, screen_size.y)).r;
+    vec4 volumetric_light = texture(g_volumetric_light, gl_FragCoord.xy / vec2(screen_size.x, screen_size.y));
 
     // input lighting data
     vec3 N = getNormalFromMap();
@@ -250,12 +313,15 @@ void main()
 
     shadow = clamp(shadow, 0.2, 1);
 
+    color.rgb *= clamp(volumetric_light.a, 0.15, 1);
+
     color.rgb *= shadow;
 
     // HDR tonemapping
-    color = color / (color + vec3(1.0));
+    color = uncharted2_filmic(color);
     // gamma correct
     color = pow(color, vec3(1.0/2.2)); 
 
     FragColor = vec4(color, 1.0);
+
 }

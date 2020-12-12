@@ -19,4 +19,4 @@ void main()  {
     }
 	
     out_ao = result / (4.0 * 4.0);
-}  
+}
