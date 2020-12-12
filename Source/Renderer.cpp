@@ -66,6 +66,11 @@ void Renderer::init(Context& ctxt) {
 	debug.add_shader(get_resource_string("Resources/Shaders/debug.frag"), "debug.frag");
 	ctxt.vuk_context->create_named_pipeline("debug", debug);
 
+	vuk::PipelineBaseCreateInfo composite;
+	composite.add_shader(get_resource_string("Resources/Shaders/composite.vert"), "composite.vert");
+	composite.add_shader(get_resource_string("Resources/Shaders/composite.frag"), "composite.frag");
+	ctxt.vuk_context->create_named_pipeline("composite", composite);
+
 	CascadedShadowRenderPass::setup(ctxt);
 	SSAODepthPass::setup(ctxt);
 	GBufferPass::setup(ctxt);
@@ -452,7 +457,7 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 
 	Uniforms uniforms;
 
-	uniforms.projection = cam_perspective.matrix(true);
+	uniforms.projection = cam_perspective.matrix();
 	uniforms.view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
 
 	auto [bubo, stub3] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span(&uniforms, 1));
@@ -545,8 +550,12 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 		glm::vec2 screen_size;
 	} push_consts{m_cam_pos, 0.f, glm::vec2{m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height}};
 
-	rg.add_pass({.resources = {"pbr_msaa"_image(vuk::eColorWrite), "pbr_depth"_image(vuk::eDepthStencilRW), "ssao_blurred"_image(vuk::eFragmentSampled),
-							   "volumetric_light_blurred"_image(vuk::eFragmentSampled)},
+	rg.add_pass({.resources =
+					 {
+						 "pbr_msaa"_image(vuk::eColorWrite),
+						 "pbr_depth"_image(vuk::eDepthStencilRW),
+						 "ssao_blurred"_image(vuk::eFragmentSampled),
+					 },
 				 .execute = [this, meshes_view, map_sampler, ubo, cascade_ubo, push_consts](vuk::CommandBuffer& cbuf) {
 					 const auto sci = vuk::SamplerCreateInfo{.addressModeU = vuk::SamplerAddressMode::eClampToBorder,
 															 .addressModeV = vuk::SamplerAddressMode::eClampToBorder,
@@ -561,8 +570,7 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 						 .bind_sampled_image(0, 3, m_brdf_lut.first, m_brdf_lut.second)
 						 .bind_sampled_image(0, 4, m_cascaded_shadows.shadow_map_view(), sci)
 						 .bind_sampled_image(0, 5, "ssao_blurred", sci)
-						 .bind_sampled_image(0, 6, "volumetric_light_blurred", sci)
-						 .bind_uniform_buffer(0, 7, cascade_ubo)
+						 .bind_uniform_buffer(0, 6, cascade_ubo)
 						 .bind_graphics_pipeline("pbr")
 						 .bind_uniform_buffer(0, 0, ubo);
 
@@ -582,11 +590,31 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 					 });
 				 }});
 
+	// composite pass
+
+	rg.add_pass({.resources =
+					 {
+						 "pbr_composite"_image(vuk::eColorWrite),
+						 "pbr_msaa"_image(vuk::eFragmentSampled),
+						 "volumetric_light_blurred"_image(vuk::eFragmentSampled),
+					 },
+				 .execute = [](vuk::CommandBuffer& cbuf) {
+					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
+						 .set_scissor(0, vuk::Rect2D::framebuffer())
+						 .bind_graphics_pipeline("composite")
+						 .bind_sampled_image(0, 0, "pbr_msaa", {})
+						 .bind_sampled_image(0, 1, "volumetric_light_blurred", {})
+						 .draw(3, 1, 0, 0);
+				 }});
+
 	rg.attach_managed("pbr_msaa", static_cast<vuk::Format>(m_ctxt->vkb_swapchain.image_format),
-					  vuk::Dimension2D::absolute(m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height), vuk::Samples::e8,
+					  vuk::Dimension2D::absolute(m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height), vuk::Samples::e1,
 					  vuk::ClearColor{0.01f, 0.01f, 0.01f, 1.f});
+	rg.attach_managed("pbr_composite", static_cast<vuk::Format>(m_ctxt->vkb_swapchain.image_format),
+					  vuk::Dimension2D::absolute(m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height), vuk::Samples::e8,
+					  vuk::ClearColor{0.f, 0.f, 0.f, 1.f});
 	rg.attach_managed("pbr_depth", vuk::Format::eD32Sfloat, vuk::Dimension2D::framebuffer(), vuk::Samples::Framebuffer{}, vuk::ClearDepthStencil{1.f, 0});
-	rg.resolve_resource_into("pbr_final", "pbr_msaa");
+	rg.resolve_resource_into("pbr_final", "pbr_composite");
 
 	return rg;
 }

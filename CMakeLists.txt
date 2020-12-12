@@ -51,6 +51,8 @@ set(Resources
     Resources/Shaders/volumetric_light.frag
     Resources/Shaders/volumetric_light_blur.vert
     Resources/Shaders/volumetric_light_blur.frag
+    Resources/Shaders/composite.vert
+    Resources/Shaders/composite.frag
 
     Resources/Textures/rust_albedo.jpg
     Resources/Textures/rust_metallic.png

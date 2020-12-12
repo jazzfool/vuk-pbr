@@ -78,28 +78,40 @@ void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg
 
 	ptc.wait_all_transfers();
 
-	rg.add_pass(vuk::Pass{
-		.resources = {"volumetric_light"_image(vuk::eColorWrite), "volumetric_depth"_image(vuk::eDepthStencilRW), "g_position"_image(vuk::eFragmentSampled)},
-		.execute = [this, ubo, cam](vuk::CommandBuffer& cbuf) {
-			cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, width, height))
-				.set_scissor(0, vuk::Rect2D::absolute(0, 0, width, height))
-				.bind_vertex_buffer(0, m_verts, 0,
-									vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat}, vuk::Format::eR32G32Sfloat})
-				.bind_index_buffer(m_inds, vuk::IndexType::eUint32)
-				.bind_graphics_pipeline("volumetric_light")
-				.bind_uniform_buffer(0, 0, cam)
-				.bind_sampled_image(0, 1, "g_position", {})
-				.bind_sampled_image(0, 2, shadow_map, {})
-				.bind_uniform_buffer(0, 3, ubo)
-				.draw_indexed(6, 1, 0, 0, 0);
-		}});
+	rg.add_pass(vuk::Pass{.resources =
+							  {
+								  "volumetric_light"_image(vuk::eColorWrite),
+								  "volumetric_depth"_image(vuk::eDepthStencilRW),
+								  "g_position"_image(vuk::eFragmentSampled),
+								  "depth_prepass"_image(vuk::eFragmentSampled),
+							  },
+						  .execute = [this, ubo, cam](vuk::CommandBuffer& cbuf) {
+							  cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, width, height))
+								  .set_scissor(0, vuk::Rect2D::absolute(0, 0, width, height))
+								  .bind_vertex_buffer(
+									  0, m_verts, 0,
+									  vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32B32Sfloat}, vuk::Format::eR32G32Sfloat})
+								  .bind_index_buffer(m_inds, vuk::IndexType::eUint32)
+								  .bind_graphics_pipeline("volumetric_light")
+								  .bind_uniform_buffer(0, 0, cam)
+								  .bind_sampled_image(0, 1, "g_position", {})
+								  .bind_sampled_image(0, 2, shadow_map, {})
+								  .bind_sampled_image(0, 3, "depth_prepass", {})
+								  .bind_uniform_buffer(0, 4, ubo)
+								  .draw_indexed(6, 1, 0, 0, 0);
+						  }});
 
 	rg.add_pass(vuk::Pass{.resources = {"volumetric_light_blurred"_image(vuk::eColorWrite), "volumetric_light"_image(vuk::eFragmentSampled)},
 						  .execute = [this](vuk::CommandBuffer& cbuf) {
 							  cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 								  .set_scissor(0, vuk::Rect2D::absolute(0, 0, width, height))
 								  .bind_graphics_pipeline("volumetric_light_blur")
-								  .bind_sampled_image(0, 0, "volumetric_light", {})
+								  .bind_sampled_image(0, 0, "volumetric_light",
+													  vuk::SamplerCreateInfo{
+														  .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
+														  .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
+														  .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
+													  })
 								  .draw(3, 1, 0, 0);
 						  }});
 

@@ -25,14 +25,13 @@ layout (set = 0, binding = 4) uniform sampler2DArray shadow_map;
 
 // cool FX
 layout (set = 0, binding = 5) uniform sampler2D g_ssao;
-layout (set = 0, binding = 6) uniform sampler2D g_volumetric_light;
 
 layout(set = 0, binding = 0) uniform Uniforms {
     mat4 projection;
     mat4 view;
 } uniforms;
 
-layout (set = 0, binding = 7) uniform Cascades {
+layout (set = 0, binding = 6) uniform Cascades {
     // i can get away with vec4 because float[SHADOW_MAP_CASCADE_COUNT] -> float[4] -> vec4 and thus i don't have to deal with alignment
     vec4 cascade_splits;
     mat4 cascade_view_proj_mats[SHADOW_MAP_CASCADE_COUNT];
@@ -191,10 +190,9 @@ void main() {
     float ao = texture(ao_map, in_uv).r;
 
     vec2 screen_uv = gl_FragCoord.xy / vec2(screen_size.x, screen_size.y);
-    screen_uv.y = 1 - screen_uv.y;
+    //screen_uv.y = 1 - screen_uv.y;
 
     float ssao = texture(g_ssao, screen_uv).r;
-    vec4 volumetric_light = texture(g_volumetric_light, screen_uv);
 
     // input lighting data
     vec3 N = get_normal_from_map();
@@ -265,9 +263,6 @@ void main() {
     vec3 color = ambient * ssao + Lo * shadow;
 
     shadow = clamp(shadow, 0.2, 1);
-
-    // TODO(jazzfool): surely there's a better way to composite the volumetric light 
-    color.rgb *= clamp(volumetric_light.a, 0.15, 1);
 
     color.rgb *= shadow;
 

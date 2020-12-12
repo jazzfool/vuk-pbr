@@ -9,10 +9,16 @@ layout (location = 1) in vec2 in_uv;
 
 layout (location = 0) out vec4 out_fog;
 
+layout (set = 0, binding = 0) uniform Camera {
+    mat4 inv_view_proj;
+    vec2 clip_range;
+};
+
 layout (set = 0, binding = 1) uniform sampler2D g_position;
 layout (set = 0, binding = 2) uniform sampler2DArray shadow_map;
+layout (set = 0, binding = 3) uniform sampler2D depth;
 
-layout (set = 0, binding = 3) uniform Uniforms {
+layout (set = 0, binding = 4) uniform Uniforms {
     vec4 cascade_splits;
     mat4 cascade_view_proj_mats[SHADOW_MAP_CASCADE_COUNT];
 	mat4 inv_view;
@@ -96,10 +102,8 @@ const float dither_pattern[4][4] = {
 	{0.9375f, 0.4375f, 0.8125f, 0.3125}
 };
 
-void main() {
-	//vec3 ray_origin = cam_pos;
-	//vec3 ray_dir = normalize(in_ray_dir);
-
+// this is raymarched volumetric light scattering... not ideal for perf
+void old_main() {
 	vec3 mv_pos = texture(g_position, in_uv).xyz / texture(g_position, in_uv).w;
 
 	vec4 world_pos_inv = inv_view * vec4(mv_pos, 1);
@@ -134,4 +138,44 @@ void main() {
 	}
 
 	out_fog /= num_steps;
+}
+
+// simpler and better
+void main() {
+	const int NUM_STEPS = 32;
+	const float NUM_DELTA = 1.0 / NUM_STEPS;
+	const float MAX_DELTA_LEN = 10;
+	const float INIT_DECAY = 1;
+	const float DIST_DECAY = 3;
+
+	vec4 light_pos = inverse(inv_view_proj) * vec4(-light_direction * clip_range.y, 1);
+	light_pos /= light_pos.w;
+
+	vec2 sun_uv = (light_pos.xy + vec2(1)) / vec2(2);
+
+	// screen-space coords
+	vec2 dir_to_sun = sun_uv - in_uv;
+	float length_to_sun = length(dir_to_sun);
+	dir_to_sun = normalize(dir_to_sun);
+
+	float delta_len = min(MAX_DELTA_LEN, length_to_sun * NUM_DELTA);
+	vec2 ray_delta = dir_to_sun * delta_len;
+
+	float step_decay = DIST_DECAY * delta_len;
+
+	vec2 ray_offset = vec2(0);
+	float decay = INIT_DECAY;
+	float ray_intensity = 0;
+	
+	const float dither_value = dither_pattern[int(in_uv.x * 800) % 4][int(in_uv.y * 600) % 4];
+	ray_offset += dither_value * ray_delta;
+
+	for (int i = 0; i < NUM_STEPS; ++i) {
+		vec2 samp_pos = in_uv + ray_offset;
+		ray_intensity += float(texture(depth, samp_pos).r == 1) * decay;
+		ray_offset += ray_delta;
+		decay = clamp(decay - step_decay, 0, 1);
+	}
+
+	out_fog = vec4(ray_intensity);
 }

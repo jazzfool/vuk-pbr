@@ -8,5 +8,5 @@
 - [x] Image-based lighting
 - [x] Cascaded shadow maps
 - [x] SSAO
-- [x] Volumetric light scattering/fog
+- [x] Volumetric light scattering/fog (2 different implementations)
 - [ ] UE4-based sky/atmosphere
