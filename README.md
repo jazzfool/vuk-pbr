@@ -9,5 +9,4 @@
 - [x] Cascaded shadow maps
 - [x] SSAO
 - [x] Volumetric light scattering/fog (2 different implementations)
-- [ ] Basic skybox
-- [ ] Atmospheric scattering (should replace skybox and volumetric light)
+- [x] Procedural skybox

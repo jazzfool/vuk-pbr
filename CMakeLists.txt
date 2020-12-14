@@ -56,6 +56,8 @@ set(Resources
     Resources/Shaders/composite.frag
     Resources/Shaders/sky.vert
     Resources/Shaders/sky.frag
+    Resources/Shaders/skybox.vert
+    Resources/Shaders/skybox.frag
 
     Resources/Textures/rust_albedo.jpg
     Resources/Textures/rust_metallic.png
@@ -65,6 +67,7 @@ set(Resources
     
     Resources/Textures/forest_slope_1k.hdr
     Resources/Textures/random_normal.jpg
+    Resources/Textures/flat_normal.png
 
     Resources/Meshes/Sphere.obj
     Resources/Meshes/Pillars.obj

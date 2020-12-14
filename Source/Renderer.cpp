@@ -16,6 +16,8 @@
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
 
+static const glm::vec3 LIGHT_DIRECTION = glm::normalize(glm::vec3(0, -2, 1));
+
 void Renderer::init(Context& ctxt) {
 	// initialize simple members
 
@@ -71,17 +73,34 @@ void Renderer::init(Context& ctxt) {
 	composite.add_shader(get_resource_string("Resources/Shaders/composite.frag"), "composite.frag");
 	ctxt.vuk_context->create_named_pipeline("composite", composite);
 
+	auto ifc = ctxt.vuk_context->begin();
+	auto ptc = ifc.begin();
+
+	RenderMesh sphere_rm;
+	sphere_rm.mesh = m_sphere;
+	sphere_rm.upload(ptc);
+	m_scene.meshes.insert("Sphere", std::move(sphere_rm));
+
+	RenderMesh cube_rm;
+	cube_rm.mesh = m_cube;
+	cube_rm.upload(ptc);
+	m_scene.meshes.insert("Cube", std::move(cube_rm));
+
+	RenderMesh quad_rm;
+	quad_rm.mesh = m_quad;
+	quad_rm.upload(ptc);
+	m_scene.meshes.insert("Quad", std::move(quad_rm));
+
 	CascadedShadowRenderPass::setup(ctxt);
 	SSAODepthPass::setup(ctxt);
 	GBufferPass::setup(ctxt);
 	VolumetricLightPass::setup(ctxt);
-
-	auto ifc = ctxt.vuk_context->begin();
-	auto ptc = ifc.begin();
+	AtmosphericSkyCubemap::setup(ctxt);
 
 	m_cascaded_shadows.init(ptc, ctxt);
 	m_ssao.init(ptc);
 	m_volumetric_light.init(ctxt, ptc);
+	m_atmosphere.init(ptc, ctxt, m_scene.meshes.get(MeshCache::view("Cube")), LIGHT_DIRECTION);
 
 	// allocate a large buffer to dump all the model matrices in; this will be used a dynamic UBO for drawing by offsetting into it
 
@@ -98,22 +117,9 @@ void Renderer::init(Context& ctxt) {
 	m_scene.textures.insert("Iron.Roughness", gfx_util::load_mipmapped_texture("Resources/Textures/rust_roughness.jpg", ptc));
 	m_scene.textures.insert("Iron.AO", gfx_util::load_mipmapped_texture("Resources/Textures/rust_ao.jpg", ptc));
 
+	m_scene.textures.insert("Normal.Flat", gfx_util::load_texture("Resources/Textures/flat_normal.png", ptc, false));
+
 	m_scene_renderer = SceneRenderer::create(ctxt, m_scene);
-
-	RenderMesh sphere_rm;
-	sphere_rm.mesh = m_sphere;
-	sphere_rm.upload(ptc);
-	m_scene.meshes.insert("Sphere", std::move(sphere_rm));
-
-	RenderMesh cube_rm;
-	cube_rm.mesh = m_cube;
-	cube_rm.upload(ptc);
-	m_scene.meshes.insert("Cube", std::move(cube_rm));
-
-	RenderMesh quad_rm;
-	quad_rm.mesh = m_quad;
-	quad_rm.upload(ptc);
-	m_scene.meshes.insert("Quad", std::move(quad_rm));
 
 	m_hdr_texture = gfx_util::load_cubemap_texture("Resources/Textures/forest_slope_1k.hdr", ptc);
 
@@ -445,15 +451,13 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 		glm::vec3 light_direction;
 	};
 
-	static const glm::vec3 LIGHT_DIRECTION = glm::normalize(glm::vec3(0, -2, 1));
-
 	auto meshes_view = m_scene.registry.view<MeshComponent, TransformComponent>();
 
 	Perspective cam_perspective;
 	cam_perspective.fovy = glm::radians(60.f);
 	cam_perspective.aspect_ratio = static_cast<f32>(m_ctxt->vkb_swapchain.extent.width) / static_cast<f32>(m_ctxt->vkb_swapchain.extent.height);
 	cam_perspective.near = 0.1f;
-	cam_perspective.far = 10.f;
+	cam_perspective.far = 100.f;
 
 	const glm::mat4 cam_view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
 
@@ -497,6 +501,9 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 
 	m_volumetric_light.width = m_ctxt->vkb_swapchain.extent.width;
 	m_volumetric_light.height = m_ctxt->vkb_swapchain.extent.height;
+
+	m_atmosphere.cam_proj = cam_perspective;
+	m_atmosphere.cam_pos = m_cam_pos;
 
 	u32 offset = 0;
 	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) {
@@ -555,9 +562,13 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 															 .addressModeV = vuk::SamplerAddressMode::eClampToBorder,
 															 .addressModeW = vuk::SamplerAddressMode::eClampToBorder};
 
+					 // draw skybox
+					 m_atmosphere.draw(cbuf, ubo, m_scene.meshes.get(MeshCache::view("Cube")));
+
 					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 						 .set_scissor(0, vuk::Rect2D::framebuffer())
 						 .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
+						 .bind_uniform_buffer(0, 0, ubo)
 						 .push_constants(vuk::ShaderStageFlagBits::eFragment, 0, push_consts)
 						 .bind_sampled_image(0, 1, *m_irradiance_cubemap_iv, m_irradiance_cubemap.second)
 						 .bind_sampled_image(0, 2, *m_prefilter_cubemap_iv, m_prefilter_cubemap.second)
@@ -565,8 +576,7 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 						 .bind_sampled_image(0, 4, m_cascaded_shadows.shadow_map_view(), sci)
 						 .bind_sampled_image(0, 5, "ssao_blurred", sci)
 						 .bind_uniform_buffer(0, 6, cascade_ubo)
-						 .bind_graphics_pipeline("pbr")
-						 .bind_uniform_buffer(0, 0, ubo);
+						 .bind_graphics_pipeline("pbr");
 
 					 u64 offset = 0;
 					 meshes_view.each([&](MeshComponent& mesh_comp, TransformComponent& transform_comp) {

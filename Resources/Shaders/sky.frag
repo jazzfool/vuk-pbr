@@ -3,7 +3,11 @@
 
 layout (location = 0) in vec2 in_uv;
 
-layout (location = 0) out vec3 out_color;
+layout (location = 0) out vec4 out_color;
+
+layout (push_constant) uniform LightDirection {
+    vec3 light_direction;
+};
 
 const float PI = 3.14159265359;
 
@@ -91,10 +95,10 @@ vec3 atmosphere(vec3 r, vec3 r0, vec3 sun_pos, float sun_intensity, float planet
 }
 
 void main() {
-	vec3 sun_pos = normalize(-vec3(0, -2, 1)) * 10000;
+	vec3 sun_pos = normalize(-light_direction) * 10000;
 
-	out_color = atmosphere(
-		normalize((in_uv - vec2(1)) * 2),
+	vec3 color = atmosphere(
+		normalize(vec3(in_uv * 2 - vec2(1), -1)),
 		vec3(0,6372e3,0),
 		sun_pos,
 		22.0,
@@ -107,5 +111,7 @@ void main() {
 		0.758
 	);
 
-	out_color = 1 - exp(-1 * color);
+	color = 1 - exp(-1 * color);
+
+    out_color = vec4(color, 1);
 }

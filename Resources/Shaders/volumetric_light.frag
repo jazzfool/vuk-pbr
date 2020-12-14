@@ -39,8 +39,7 @@ float compute_scattering(float light_dot_view) {
 	return result;
 }
 
-float texture_proj(vec4 shadowCoord, vec2 offset, uint cascadeIndex)
-{
+float texture_proj(vec4 shadowCoord, vec2 offset, uint cascadeIndex) {
 	float shadow = 1.0;
     float bias = 0;
 
@@ -61,7 +60,6 @@ const mat4 biasMat = mat4(
 	0.5, 0.5, 0.0, 1.0 
 );
 
-// shadows :)
 float shadow_calculation(vec3 mv_pos, vec3 pos) {
     uint cascadeIndex = 0;
     for (uint i = 0; i < SHADOW_MAP_CASCADE_COUNT - 1; ++i) {
@@ -103,10 +101,6 @@ vec3 uncharted2_filmic(vec3 v) {
 }
 
 void main() {
-	if (texture(depth, in_uv).r == 1) {
-		discard;
-	}
-
 	vec3 mv_pos = texture(g_position, in_uv).xyz / texture(g_position, in_uv).w;
 
 	vec4 world_pos_inv = inv_view * vec4(mv_pos, 1);
@@ -131,7 +125,7 @@ void main() {
 		current_mv_pos /= current_mv_pos.w;
 
 		float dist = length(cam_pos - current_pos);
-		float fade = dist > 10 ? 1 : dist / 10;
+		float fade = dist > 10 ? 1 : pow(dist / 10, 2);
 
 		if (shadow_calculation(current_mv_pos.xyz, current_pos) > 0.5) {
 			out_fog += vec4(compute_scattering(dot(ray_dir, light_direction))) * vec4(light_color, 1) * light_intensity * fade;

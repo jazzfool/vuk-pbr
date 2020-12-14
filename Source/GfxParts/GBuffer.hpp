@@ -4,7 +4,7 @@
 #include "../Perspective.hpp"
 
 #include <glm/mat4x4.hpp>
-#include <vuk/Image.hpp>
+#include <vuk/Buffer.hpp>
 
 /*
 	This is a forward renderer, but some thin g-buffers are still needed for effects like SSAO.
@@ -29,4 +29,5 @@ class GBufferPass {
 	u32 width, height;
 
   private:
+	vuk::Buffer m_skybox_buffer;
 };

@@ -11,18 +11,17 @@ layout (location = 1) out vec4 out_normal;
 
 layout (set = 1, binding = 1) uniform sampler2D normal_map;
 
-vec3 get_normal_from_map()
-{
+vec3 get_normal_from_map() {
     vec3 tangent_normal = texture(normal_map, in_tex_coords).xyz * 2.0 - 1.0;
 
-    vec3 Q1  = dFdx(in_pos);
-    vec3 Q2  = dFdy(in_pos);
+    vec3 Q1 = dFdx(in_pos);
+    vec3 Q2 = dFdy(in_pos);
     vec2 st1 = dFdx(in_tex_coords);
     vec2 st2 = dFdy(in_tex_coords);
 
-    vec3 N   = normalize(in_normal);
-    vec3 T  = normalize(Q1*st2.t - Q2*st1.t);
-    vec3 B  = -normalize(cross(N, T));
+    vec3 N = normalize(in_normal);
+    vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
+    vec3 B = -normalize(cross(N, T));
     mat3 TBN = mat3(T, B, N);
 
     return normalize(TBN * tangent_normal);
