@@ -29,18 +29,13 @@ class CascadedShadowRenderPass {
 
 	void init(vuk::PerThreadContext& ptc, struct Context& ctxt);
 	void debug(vuk::CommandBuffer& cbuf, u8 cascade);
-	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer);
-	std::array<CascadeInfo, SHADOW_MAP_CASCADE_COUNT> compute_cascades();
+
+	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer, const struct RenderInfo& info);
+
+	std::array<CascadeInfo, SHADOW_MAP_CASCADE_COUNT> compute_cascades(const struct RenderInfo& info);
 	vuk::ImageView shadow_map_view() const;
 
 	f32 cascade_split_lambda;
-
-	glm::vec3 light_direction;
-
-	Perspective cam_proj;
-	glm::mat4 cam_view;
-	f32 cam_near;
-	f32 cam_far;
 
   private:
 	std::vector<std::string> m_attachment_names;

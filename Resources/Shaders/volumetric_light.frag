@@ -28,13 +28,13 @@ layout (set = 0, binding = 4) uniform Uniforms {
 };
 
 const int num_steps = 10;
-const float scattering = 0.2;
+const float scattering = 0.9;
 
 const float light_intensity = 1000;
 const vec3 light_color = vec3(1, 1, 1);
 
 float compute_scattering(float light_dot_view) {
-	float result = 1 - scattering * scattering;
+	float result = 1.0 - scattering * scattering;
 	result /= (4 * PI * pow(1 + scattering * scattering - (2 * scattering) * light_dot_view, 1));
 	return result;
 }
@@ -42,7 +42,7 @@ float compute_scattering(float light_dot_view) {
 float texture_proj(vec4 shadowCoord, vec2 offset, uint cascadeIndex)
 {
 	float shadow = 1.0;
-    float bias = 0.005;
+    float bias = 0;
 
 	if (shadowCoord.z > -1.0 && shadowCoord.z < 1.0) {
 		float dist = texture(shadow_map, vec3(shadowCoord.st + offset, cascadeIndex)).r;
@@ -73,25 +73,6 @@ float shadow_calculation(vec3 mv_pos, vec3 pos) {
     vec4 sc = (biasMat * cascade_view_proj_mats[cascadeIndex]) * vec4(pos, 1.0);
     sc = sc / sc.w;
 
-	/*ivec2 texDim = textureSize(shadow_map, 0).xy;
-	float scale = 0.75;
-	float dx = scale * 1.0 / float(texDim.x);
-	float dy = scale * 1.0 / float(texDim.y);
-
-	float shadowFactor = 0.0;
-	int count = 0;
-	int range = 8;
-	
-	for (int x = -range; x <= range; x++) {
-		for (int y = -range; y <= range; y++) {
-			shadowFactor += texture_proj(sc, vec2(dx*x, dy*y), cascadeIndex);
-			count++;
-		}
-	}
-
-	return shadowFactor / count;
-	*/
-
 	return texture_proj(sc, vec2(0), cascadeIndex);
 }
 
@@ -102,8 +83,30 @@ const float dither_pattern[4][4] = {
 	{0.9375f, 0.4375f, 0.8125f, 0.3125}
 };
 
-// this is raymarched volumetric light scattering... not ideal for perf
-void old_main() {
+vec3 uncharted2_tonemap_partial(vec3 x) {
+    float A = 0.15f;
+    float B = 0.50f;
+    float C = 0.10f;
+    float D = 0.20f;
+    float E = 0.02f;
+    float F = 0.30f;
+    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+
+vec3 uncharted2_filmic(vec3 v) {
+    float exposure_bias = 2.0f;
+    vec3 curr = uncharted2_tonemap_partial(v * exposure_bias);
+
+    vec3 W = vec3(11.2f);
+    vec3 white_scale = vec3(1.0f) / uncharted2_tonemap_partial(W);
+    return curr * white_scale;
+}
+
+void main() {
+	if (texture(depth, in_uv).r == 1) {
+		discard;
+	}
+
 	vec3 mv_pos = texture(g_position, in_uv).xyz / texture(g_position, in_uv).w;
 
 	vec4 world_pos_inv = inv_view * vec4(mv_pos, 1);
@@ -128,7 +131,7 @@ void old_main() {
 		current_mv_pos /= current_mv_pos.w;
 
 		float dist = length(cam_pos - current_pos);
-		float fade = dist > 20 ? 1 : dist / 20;
+		float fade = dist > 10 ? 1 : dist / 10;
 
 		if (shadow_calculation(current_mv_pos.xyz, current_pos) > 0.5) {
 			out_fog += vec4(compute_scattering(dot(ray_dir, light_direction))) * vec4(light_color, 1) * light_intensity * fade;
@@ -138,20 +141,26 @@ void old_main() {
 	}
 
 	out_fog /= num_steps;
+
+	// HDR tonemapping
+    out_fog.rgb = uncharted2_filmic(out_fog.rgb);
+    // gamma correct
+    out_fog.rgb = pow(out_fog.rgb, vec3(1.0/2.2)); 
 }
 
-// simpler and better
-void main() {
+// simpler version
+
+void old_main() {
 	const int NUM_STEPS = 32;
 	const float NUM_DELTA = 1.0 / NUM_STEPS;
 	const float MAX_DELTA_LEN = 10;
 	const float INIT_DECAY = 1;
-	const float DIST_DECAY = 3;
+	const float DIST_DECAY = 5;
 
-	vec4 light_pos = inverse(inv_view_proj) * vec4(-light_direction * clip_range.y, 1);
+	vec4 light_pos = inverse(inv_view_proj) * vec4(-light_direction * 10000, 1);
 	light_pos /= light_pos.w;
 
-	vec2 sun_uv = (light_pos.xy + vec2(1)) / vec2(2);
+	vec2 sun_uv = (light_pos.xy + vec2(1)) / 2;
 
 	// screen-space coords
 	vec2 dir_to_sun = sun_uv - in_uv;
@@ -167,8 +176,11 @@ void main() {
 	float decay = INIT_DECAY;
 	float ray_intensity = 0;
 	
-	const float dither_value = dither_pattern[int(in_uv.x * 800) % 4][int(in_uv.y * 600) % 4];
+	const ivec2 screen_size = textureSize(depth, 0).xy;
+	const float dither_value = dither_pattern[int(in_uv.x * screen_size.x) % 4][int(in_uv.y * screen_size.y) % 4];
 	ray_offset += dither_value * ray_delta;
+
+	out_fog = vec4(0);
 
 	for (int i = 0; i < NUM_STEPS; ++i) {
 		vec2 samp_pos = in_uv + ray_offset;

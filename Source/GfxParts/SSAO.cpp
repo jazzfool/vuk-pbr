@@ -5,6 +5,7 @@
 #include "../Mesh.hpp"
 #include "../Scene.hpp"
 #include "../GfxUtil.hpp"
+#include "../Renderer.hpp"
 
 #include <vuk/CommandBuffer.hpp>
 #include <random>
@@ -42,7 +43,7 @@ void SSAODepthPass::init(vuk::PerThreadContext& ptc) {
 	// TODO(jazzfool): generate noise texture instead of loading it
 }
 
-void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
+void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const RenderInfo& info) {
 	struct Uniforms {
 		std::array<glm::vec4, KERNEL_SIZE> samples;
 		glm::mat4 projection;
@@ -52,7 +53,7 @@ void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
 		uniforms.samples[i] = glm::vec4{m_kernel[i], 1.f};
 	}
 
-	uniforms.projection = cam_proj.matrix();
+	uniforms.projection = info.cam_proj.matrix();
 
 	auto [bubo, stub] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&uniforms, 1});
 	auto ubo = bubo;

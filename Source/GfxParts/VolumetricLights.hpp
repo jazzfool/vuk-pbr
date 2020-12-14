@@ -24,19 +24,9 @@ class VolumetricLightPass {
 	static void debug(vuk::CommandBuffer& cbuf);
 
 	void init(struct Context& ctxt, vuk::PerThreadContext& ptc);
-	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg);
+	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const struct RenderInfo& info);
 
 	u32 width, height;
-
-	Perspective cam_proj;
-	glm::mat4 cam_view;
-
-	vuk::ImageView shadow_map;
-	glm::vec3 light_direction;
-	glm::vec3 cam_pos;
-	glm::vec3 cam_forward;
-	glm::vec3 cam_up;
-	std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> cascades;
 
   private:
 	vuk::Buffer m_verts;

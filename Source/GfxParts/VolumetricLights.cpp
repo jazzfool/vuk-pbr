@@ -2,6 +2,7 @@
 
 #include "../Context.hpp"
 #include "../Resource.hpp"
+#include "../Renderer.hpp"
 
 #include <vuk/RenderGraph.hpp>
 #include <vuk/CommandBuffer.hpp>
@@ -41,7 +42,7 @@ void VolumetricLightPass::init(Context& ctxt, vuk::PerThreadContext& ptc) {
 	ptc.wait_all_transfers();
 }
 
-void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg) {
+void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const RenderInfo& info) {
 	struct Uniforms {
 		f32 cascade_splits[CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT];
 		glm::mat4 cascade_view_proj_mats[CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT];
@@ -56,19 +57,19 @@ void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg
 		glm::vec2 clip_range;
 	} camera;
 
-	uniforms.light_direction = light_direction;
-	uniforms.cam_pos = cam_pos;
+	uniforms.light_direction = info.light_direction;
+	uniforms.cam_pos = info.cam_pos;
 
 	for (u8 i = 0; i < CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT; ++i) {
-		uniforms.cascade_splits[i] = cascades[i].split_depth;
-		uniforms.cascade_view_proj_mats[i] = cascades[i].view_proj_mat;
+		uniforms.cascade_splits[i] = info.cascades[i].split_depth;
+		uniforms.cascade_view_proj_mats[i] = info.cascades[i].view_proj_mat;
 	}
 
-	uniforms.inv_view = glm::inverse(cam_view);
+	uniforms.inv_view = glm::inverse(info.cam_view);
 
-	camera.inv_view_proj = glm::inverse(cam_proj.matrix() * cam_view);
-	camera.clip_range.x = cam_proj.near;
-	camera.clip_range.y = cam_proj.far;
+	camera.inv_view_proj = glm::inverse(info.cam_proj.matrix() * info.cam_view);
+	camera.clip_range.x = info.cam_proj.near;
+	camera.clip_range.y = info.cam_proj.far;
 
 	auto [bubo, stub] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&uniforms, 1});
 	auto ubo = bubo;
@@ -85,7 +86,13 @@ void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg
 								  "g_position"_image(vuk::eFragmentSampled),
 								  "depth_prepass"_image(vuk::eFragmentSampled),
 							  },
-						  .execute = [this, ubo, cam](vuk::CommandBuffer& cbuf) {
+						  .execute = [this, info, ubo, cam](vuk::CommandBuffer& cbuf) {
+							  const auto sci = vuk::SamplerCreateInfo{
+								  .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
+								  .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
+								  .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
+							  };
+
 							  cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, width, height))
 								  .set_scissor(0, vuk::Rect2D::absolute(0, 0, width, height))
 								  .bind_vertex_buffer(
@@ -94,9 +101,9 @@ void VolumetricLightPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg
 								  .bind_index_buffer(m_inds, vuk::IndexType::eUint32)
 								  .bind_graphics_pipeline("volumetric_light")
 								  .bind_uniform_buffer(0, 0, cam)
-								  .bind_sampled_image(0, 1, "g_position", {})
-								  .bind_sampled_image(0, 2, shadow_map, {})
-								  .bind_sampled_image(0, 3, "depth_prepass", {})
+								  .bind_sampled_image(0, 1, "g_position", sci)
+								  .bind_sampled_image(0, 2, info.shadow_map, sci)
+								  .bind_sampled_image(0, 3, "depth_prepass", sci)
 								  .bind_uniform_buffer(0, 4, ubo)
 								  .draw_indexed(6, 1, 0, 0, 0);
 						  }});

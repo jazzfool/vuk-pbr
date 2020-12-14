@@ -4,7 +4,7 @@
 #include "../Resource.hpp"
 #include "../Context.hpp"
 #include "../Mesh.hpp"
-#include "../Frustum.hpp"
+#include "../Renderer.hpp"
 
 #include <vuk/CommandBuffer.hpp>
 #include <limits>
@@ -76,8 +76,8 @@ void CascadedShadowRenderPass::debug(vuk::CommandBuffer& cbuf, u8 cascade) {
 CascadedShadowRenderPass::CascadedShadowRenderPass() : cascade_split_lambda{0.95f} {
 }
 
-void CascadedShadowRenderPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const SceneRenderer& renderer) {
-	const auto cascades = compute_cascades();
+void CascadedShadowRenderPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const SceneRenderer& renderer, const RenderInfo& info) {
+	const auto cascades = compute_cascades(info);
 	std::vector<glm::mat4> cascade_mats;
 	cascade_mats.reserve(cascades.size());
 	for (auto m : cascades) {
@@ -122,13 +122,14 @@ vuk::ImageView CascadedShadowRenderPass::shadow_map_view() const {
 }
 
 // https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmappingcascade/shadowmappingcascade.cpp
-std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> CascadedShadowRenderPass::compute_cascades() {
+std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT>
+CascadedShadowRenderPass::compute_cascades(const RenderInfo& info) {
 	std::array<CascadeInfo, SHADOW_MAP_CASCADE_COUNT> cascades;
 
 	f32 cascade_splits[SHADOW_MAP_CASCADE_COUNT];
 
-	f32 near_clip = cam_near;
-	f32 far_clip = cam_far;
+	f32 near_clip = info.cam_proj.near;
+	f32 far_clip = info.cam_proj.far;
 	f32 clip_range = far_clip - near_clip;
 
 	f32 min_z = near_clip;
@@ -158,7 +159,7 @@ std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHAD
 		};
 
 		// Project frustum corners into world space
-		glm::mat4 inv_cam = glm::inverse(cam_proj.matrix() * cam_view);
+		glm::mat4 inv_cam = glm::inverse(info.cam_proj.matrix() * info.cam_view);
 		for (u8 i = 0; i < 8; i++) {
 			glm::vec4 inv_corner = inv_cam * glm::vec4(frustum_corners[i], 1.0f);
 			frustum_corners[i] = inv_corner / inv_corner.w;
@@ -187,11 +188,11 @@ std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHAD
 		glm::vec3 max_extents = glm::vec3(radius);
 		glm::vec3 min_extents = -max_extents;
 
-		glm::mat4 light_view_matrix = glm::lookAt(frustum_center - light_direction * -min_extents.z, frustum_center, glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 light_view_matrix = glm::lookAt(frustum_center - info.light_direction * -min_extents.z, frustum_center, glm::vec3(0.0f, 1.0f, 0.0f));
 		glm::mat4 light_ortho_matrix = glm::ortho(min_extents.x, max_extents.x, min_extents.y, max_extents.y, 0.0f, max_extents.z - min_extents.z);
 
 		// Store split distance and matrix in cascade
-		cascades[i].split_depth = (cam_near + split_dist * clip_range) * -1.0f;
+		cascades[i].split_depth = (info.cam_proj.near + split_dist * clip_range) * -1.0f;
 		cascades[i].view_proj_mat = light_ortho_matrix * light_view_matrix;
 
 		last_split_dist = cascade_splits[i];

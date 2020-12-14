@@ -17,6 +17,12 @@ int main() {
 		r->mouse_event(x_pos, y_pos);
 	});
 
+	glfwSetKeyCallback(ctxt->window, [](GLFWwindow* window, i32 key, i32 scancode, i32 action, i32 mods) {
+		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+			glfwSetWindowShouldClose(window, GLFW_TRUE);
+		}
+	});
+
 	while (!glfwWindowShouldClose(ctxt->window)) {
 		glfwPollEvents();
 

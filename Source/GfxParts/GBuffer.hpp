@@ -24,10 +24,7 @@ class GBufferPass {
 	static void debug_position(vuk::CommandBuffer& cbuf);
 	static void debug_normal(vuk::CommandBuffer& cbuf);
 
-	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer);
-
-	Perspective cam_proj;
-	glm::mat4 cam_view;
+	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer, const struct RenderInfo& info);
 
 	u32 width, height;
 

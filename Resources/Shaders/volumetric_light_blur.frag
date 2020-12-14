@@ -11,12 +11,12 @@ void main()  {
     vec2 texel_size = 1.0 / vec2(textureSize(volumetric_light, 0));
     vec4 result = vec4(0);
 
-    for (int x = -1; x < 1; ++x)  {
-        for (int y = -1; y < 1; ++y) {
+    for (int x = -2; x < 2; ++x)  {
+        for (int y = -2; y < 2; ++y) {
             vec2 offset = vec2(float(x), float(y)) * texel_size;
             result += texture(volumetric_light, in_uv + offset);
         }
     }
 	
-    out_volumetric_light = result / 4.0;
+    out_volumetric_light = result / 16.0;
 }

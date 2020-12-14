@@ -24,6 +24,7 @@ set(Source
     Source/GfxParts/SSAO.cpp
     Source/GfxParts/GBuffer.cpp
     Source/GfxParts/VolumetricLights.cpp
+    Source/GfxParts/Atmosphere.cpp
 )
 
 set(Resources
@@ -53,6 +54,8 @@ set(Resources
     Resources/Shaders/volumetric_light_blur.frag
     Resources/Shaders/composite.vert
     Resources/Shaders/composite.frag
+    Resources/Shaders/sky.vert
+    Resources/Shaders/sky.frag
 
     Resources/Textures/rust_albedo.jpg
     Resources/Textures/rust_metallic.png

@@ -25,9 +25,8 @@ class SSAODepthPass {
 	static void setup(struct Context& ctxt);
 
 	void init(vuk::PerThreadContext& ptc);
-	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg);
+	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const struct RenderInfo& info);
 
-	Perspective cam_proj;
 	u32 width, height;
 
   private:

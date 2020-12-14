@@ -3,6 +3,7 @@
 #include "../Context.hpp"
 #include "../Scene.hpp"
 #include "../Resource.hpp"
+#include "../Renderer.hpp"
 
 #include <vuk/RenderGraph.hpp>
 #include <vuk/CommandBuffer.hpp>
@@ -32,11 +33,11 @@ void GBufferPass::debug_normal(vuk::CommandBuffer& cbuf) {
 		.draw(3, 1, 0, 0);
 }
 
-void GBufferPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const SceneRenderer& renderer) {
+void GBufferPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const SceneRenderer& renderer, const RenderInfo& info) {
 	struct Uniforms {
 		glm::mat4 proj;
 		glm::mat4 view;
-	} uniforms{cam_proj.matrix(), cam_view};
+	} uniforms{info.cam_proj.matrix(), info.cam_view};
 
 	auto [bubo, stub] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&uniforms, 1});
 	auto ubo = bubo;

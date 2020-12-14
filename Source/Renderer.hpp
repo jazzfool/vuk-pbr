@@ -61,3 +61,14 @@ class Renderer {
 	vuk::Unique<vuk::ImageView> m_irradiance_cubemap_iv;
 	vuk::Unique<vuk::ImageView> m_prefilter_cubemap_iv;
 };
+
+struct RenderInfo {
+	glm::vec3 light_direction;
+	Perspective cam_proj;
+	glm::mat4 cam_view;
+	glm::vec3 cam_pos;
+	glm::vec3 cam_forward;
+	glm::vec3 cam_up;
+	vuk::ImageView shadow_map;
+	std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> cascades;
+};

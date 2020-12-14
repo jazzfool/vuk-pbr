@@ -409,7 +409,7 @@ void Renderer::init(Context& ctxt) {
 }
 
 void Renderer::update() {
-	constexpr static f32 cam_speed = 0.005f;
+	constexpr static f32 cam_speed = 0.01f;
 
 	const f32 dz = (glfwGetKey(m_ctxt->window, GLFW_KEY_W) | glfwGetKey(m_ctxt->window, GLFW_KEY_UP) - glfwGetKey(m_ctxt->window, GLFW_KEY_S) |
 					glfwGetKey(m_ctxt->window, GLFW_KEY_DOWN)) *
@@ -455,10 +455,21 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 	cam_perspective.near = 0.1f;
 	cam_perspective.far = 10.f;
 
+	const glm::mat4 cam_view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
+
+	RenderInfo render_info;
+	render_info.light_direction = LIGHT_DIRECTION;
+	render_info.cam_proj = cam_perspective;
+	render_info.cam_view = cam_view;
+	render_info.cam_pos = m_cam_pos;
+	render_info.cam_forward = m_cam_front;
+	render_info.cam_up = m_cam_up;
+	render_info.shadow_map = m_cascaded_shadows.shadow_map_view();
+
 	Uniforms uniforms;
 
 	uniforms.projection = cam_perspective.matrix();
-	uniforms.view = glm::lookAt(m_cam_pos, m_cam_pos + m_cam_front, m_cam_up);
+	uniforms.view = cam_view;
 
 	auto [bubo, stub3] = ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span(&uniforms, 1));
 	auto ubo = bubo;
@@ -467,42 +478,25 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 
 	cascades.light_direction = LIGHT_DIRECTION;
 
-	m_cascaded_shadows.light_direction = LIGHT_DIRECTION;
-	m_cascaded_shadows.cam_proj = cam_perspective;
-	m_cascaded_shadows.cam_view = uniforms.view;
-	m_cascaded_shadows.cam_near = 0.1f;
-	m_cascaded_shadows.cam_far = 10.f;
+	render_info.cascades = m_cascaded_shadows.compute_cascades(render_info);
 
-	auto computed_cascades = m_cascaded_shadows.compute_cascades();
-
-	for (u32 i = 0; i < computed_cascades.size(); ++i) {
-		cascades.cascade_splits[i] = computed_cascades[i].split_depth;
-		cascades.cascade_view_proj_mats[i] = computed_cascades[i].view_proj_mat;
+	for (u32 i = 0; i < render_info.cascades.size(); ++i) {
+		cascades.cascade_splits[i] = render_info.cascades[i].split_depth;
+		cascades.cascade_view_proj_mats[i] = render_info.cascades[i].view_proj_mat;
 	}
 
 	auto [bcascade_ubo, cascadestub] =
 		ptc.create_scratch_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer, std::span{&cascades, 1});
 	auto cascade_ubo = bcascade_ubo;
 
-	m_ssao.cam_proj = cam_perspective;
 	m_ssao.width = m_ctxt->vkb_swapchain.extent.width;
 	m_ssao.height = m_ctxt->vkb_swapchain.extent.height;
 
-	m_gbuffer.cam_proj = cam_perspective;
-	m_gbuffer.cam_view = uniforms.view;
 	m_gbuffer.width = m_ctxt->vkb_swapchain.extent.width;
 	m_gbuffer.height = m_ctxt->vkb_swapchain.extent.height;
 
 	m_volumetric_light.width = m_ctxt->vkb_swapchain.extent.width;
 	m_volumetric_light.height = m_ctxt->vkb_swapchain.extent.height;
-	m_volumetric_light.cam_proj = cam_perspective;
-	m_volumetric_light.cam_view = uniforms.view;
-	m_volumetric_light.shadow_map = m_cascaded_shadows.shadow_map_view();
-	m_volumetric_light.light_direction = LIGHT_DIRECTION;
-	m_volumetric_light.cam_pos = m_cam_pos;
-	m_volumetric_light.cam_forward = m_cam_front;
-	m_volumetric_light.cam_up = m_cam_up;
-	m_volumetric_light.cascades = computed_cascades;
 
 	u32 offset = 0;
 	meshes_view.each([&](MeshComponent& mesh, TransformComponent& transform) {
@@ -511,6 +505,34 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 	});
 
 	ptc.wait_all_transfers();
+
+	m_scene_renderer.update(ptc, m_scene, meshes_view);
+
+	vuk::RenderGraph rg;
+
+	// cascaded depth only pass
+
+	m_cascaded_shadows.build(ptc, rg, m_scene_renderer, render_info);
+
+	// gbuffer pass
+
+	m_gbuffer.build(ptc, rg, m_scene_renderer, render_info);
+
+	// ssao pass
+
+	m_ssao.build(ptc, rg, render_info);
+
+	// volumetric light pass
+
+	m_volumetric_light.build(ptc, rg, render_info);
+
+	// color pass
+
+	struct PushConstants {
+		glm::vec3 cam_pos;
+		f32 _pad;
+		glm::vec2 screen_size;
+	} push_consts{m_cam_pos, 0.f, glm::vec2{m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height}};
 
 	const vuk::SamplerCreateInfo map_sampler{.magFilter = vuk::Filter::eLinear,
 											 .minFilter = vuk::Filter::eLinear,
@@ -521,34 +543,6 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 											 .maxAnisotropy = 16.f,
 											 .minLod = 0.f,
 											 .maxLod = 16.f};
-
-	m_scene_renderer.update(ptc, m_scene, meshes_view);
-
-	vuk::RenderGraph rg;
-
-	// cascaded depth only pass
-
-	m_cascaded_shadows.build(ptc, rg, m_scene_renderer);
-
-	// gbuffer pass
-
-	m_gbuffer.build(ptc, rg, m_scene_renderer);
-
-	// ssao pass
-
-	m_ssao.build(ptc, rg);
-
-	// volumetric light pass
-
-	m_volumetric_light.build(ptc, rg);
-
-	// color pass
-
-	struct PushConstants {
-		glm::vec3 cam_pos;
-		f32 _pad;
-		glm::vec2 screen_size;
-	} push_consts{m_cam_pos, 0.f, glm::vec2{m_ctxt->vkb_swapchain.extent.width, m_ctxt->vkb_swapchain.extent.height}};
 
 	rg.add_pass({.resources =
 					 {
@@ -599,11 +593,15 @@ vuk::RenderGraph Renderer::render_graph(vuk::PerThreadContext& ptc) {
 						 "volumetric_light_blurred"_image(vuk::eFragmentSampled),
 					 },
 				 .execute = [](vuk::CommandBuffer& cbuf) {
+					 const auto sci = vuk::SamplerCreateInfo{.addressModeU = vuk::SamplerAddressMode::eClampToBorder,
+															 .addressModeV = vuk::SamplerAddressMode::eClampToBorder,
+															 .addressModeW = vuk::SamplerAddressMode::eClampToBorder};
+
 					 cbuf.set_viewport(0, vuk::Rect2D::framebuffer())
 						 .set_scissor(0, vuk::Rect2D::framebuffer())
 						 .bind_graphics_pipeline("composite")
-						 .bind_sampled_image(0, 0, "pbr_msaa", {})
-						 .bind_sampled_image(0, 1, "volumetric_light_blurred", {})
+						 .bind_sampled_image(0, 0, "pbr_msaa", sci)
+						 .bind_sampled_image(0, 1, "volumetric_light_blurred", sci)
 						 .draw(3, 1, 0, 0);
 				 }});
 
