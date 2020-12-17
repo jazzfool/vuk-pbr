@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Cache.hpp"
+#include "Types.hpp"
 
 #include <vuk/Image.hpp>
 

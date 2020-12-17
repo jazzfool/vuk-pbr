@@ -13,14 +13,16 @@ SceneRenderer SceneRenderer::create(Context& ctxt, Scene& scene) {
 
 	sr.m_ctxt = &ctxt;
 	sr.m_scene = &scene;
-	sr.m_transform_buffer = ctxt.vuk_context->allocate_buffer(
-		vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer | vuk::BufferUsageFlagBits::eTransferDst,
-		MAX_SCENE_OBJECTS * gfx_util::uniform_buffer_offset_alignment<glm::mat4>(ctxt), gfx_util::uniform_buffer_offset_alignment<glm::mat4>(ctxt));
+	sr.m_transform_buffer =
+		ctxt.vuk_context->allocate_buffer(vuk::MemoryUsage::eCPUtoGPU, vuk::BufferUsageFlagBits::eUniformBuffer | vuk::BufferUsageFlagBits::eTransferDst,
+			MAX_SCENE_OBJECTS * gfx_util::uniform_buffer_offset_alignment<glm::mat4>(ctxt), gfx_util::uniform_buffer_offset_alignment<glm::mat4>(ctxt));
 
 	return sr;
 }
 
-void SceneRenderer::update(vuk::PerThreadContext& ptc, Scene& scene, const entt::view<entt::exclude_t<>, MeshComponent, TransformComponent>& scene_view) {
+void SceneRenderer::update(vuk::PerThreadContext& ptc, Scene& scene) {
+	auto scene_view = scene.registry.view<MeshComponent, TransformComponent>();
+
 	m_scene = &scene;
 
 	m_cached_meshes.clear();

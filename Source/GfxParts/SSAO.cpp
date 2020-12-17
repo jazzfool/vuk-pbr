@@ -10,19 +10,10 @@
 #include <vuk/CommandBuffer.hpp>
 #include <random>
 
-void SSAODepthPass::setup(Context& ctxt) {
-	vuk::PipelineBaseCreateInfo ssao;
-	ssao.add_shader(get_resource_string("Resources/Shaders/ssao.vert"), "ssao.vert");
-	ssao.add_shader(get_resource_string("Resources/Shaders/ssao.frag"), "ssao.frag");
-	ctxt.vuk_context->create_named_pipeline("ssao", ssao);
+void SSAOPass::init(vuk::PerThreadContext& ptc, struct Context& ctxt, struct UniformStore& uniforms, PipelineStore& ps) {
+	ps.add("ssao", "ssao.vert", "ssao.frag");
+	ps.add("ssao_blur", "ssao.vert", "ssao_blur.frag");
 
-	vuk::PipelineBaseCreateInfo blur;
-	blur.add_shader(get_resource_string("Resources/Shaders/ssao.vert"), "ssao.vert");
-	blur.add_shader(get_resource_string("Resources/Shaders/ssao_blur.frag"), "ssao_blur.frag");
-	ctxt.vuk_context->create_named_pipeline("ssao_blur", blur);
-}
-
-void SSAODepthPass::init(vuk::PerThreadContext& ptc) {
 	m_random_normal = gfx_util::load_texture("Resources/Textures/random_normal.jpg", ptc, false);
 
 	// generate kernel
@@ -43,7 +34,12 @@ void SSAODepthPass::init(vuk::PerThreadContext& ptc) {
 	// TODO(jazzfool): generate noise texture instead of loading it
 }
 
-void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const RenderInfo& info) {
+void SSAOPass::prep(vuk::PerThreadContext& ptc, struct Context& ctxt, struct RenderInfo& info) {
+	m_width = info.window_width;
+	m_height = info.window_height;
+}
+
+void SSAOPass::render(vuk::PerThreadContext& ptc, struct Context& ctxt, vuk::RenderGraph& rg, const class SceneRenderer& renderer, struct RenderInfo& info) {
 	struct Uniforms {
 		std::array<glm::vec4, KERNEL_SIZE> samples;
 		glm::mat4 projection;
@@ -62,26 +58,26 @@ void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, cons
 
 	auto ssao_pass =
 		vuk::Pass{.resources = {"ssao"_image(vuk::eColorWrite), "g_position"_image(vuk::eFragmentSampled), "g_normal"_image(vuk::eFragmentSampled)},
-				  .execute = [this, ubo](vuk::CommandBuffer& cbuf) {
-					  const auto sci = vuk::SamplerCreateInfo{
-						  .addressModeU = vuk::SamplerAddressMode::eClampToEdge,
-						  .addressModeV = vuk::SamplerAddressMode::eClampToEdge,
-						  .addressModeW = vuk::SamplerAddressMode::eClampToEdge,
-					  };
+			.execute = [this, ubo](vuk::CommandBuffer& cbuf) {
+				const auto sci = vuk::SamplerCreateInfo{
+					.addressModeU = vuk::SamplerAddressMode::eClampToEdge,
+					.addressModeV = vuk::SamplerAddressMode::eClampToEdge,
+					.addressModeW = vuk::SamplerAddressMode::eClampToEdge,
+				};
 
-					  cbuf.bind_graphics_pipeline("ssao")
-						  .bind_sampled_image(0, 0, "g_position", sci)
-						  .bind_sampled_image(0, 1, "g_normal", sci)
-						  .bind_sampled_image(0, 2, m_random_normal,
-											  {
-												  .addressModeU = vuk::SamplerAddressMode::eRepeat,
-												  .addressModeV = vuk::SamplerAddressMode::eRepeat,
-												  .addressModeW = vuk::SamplerAddressMode::eRepeat,
-											  })
-						  .bind_uniform_buffer(0, 3, ubo)
-						  .push_constants(vuk::ShaderStageFlagBits::eFragment, 0, glm::vec2{width, height})
-						  .draw(3, 1, 0, 0);
-				  }};
+				cbuf.bind_graphics_pipeline("ssao")
+					.bind_sampled_image(0, 0, "g_position", sci)
+					.bind_sampled_image(0, 1, "g_normal", sci)
+					.bind_sampled_image(0, 2, m_random_normal,
+						{
+							.addressModeU = vuk::SamplerAddressMode::eRepeat,
+							.addressModeV = vuk::SamplerAddressMode::eRepeat,
+							.addressModeW = vuk::SamplerAddressMode::eRepeat,
+						})
+					.bind_uniform_buffer(0, 3, ubo)
+					.push_constants(vuk::ShaderStageFlagBits::eFragment, 0, glm::vec2{m_width, m_height})
+					.draw(3, 1, 0, 0);
+			}};
 
 	auto blur_pass = vuk::Pass{
 		.resources = {"ssao_blurred"_image(vuk::eColorWrite), "ssao"_image(vuk::eFragmentSampled)}, .execute = [](vuk::CommandBuffer& cbuf) {
@@ -97,7 +93,7 @@ void SSAODepthPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, cons
 	rg.add_pass(ssao_pass);
 	rg.add_pass(blur_pass);
 
-	rg.attach_managed("ssao", vuk::Format::eR16Sfloat, vuk::Dimension2D::absolute(width, height), vuk::Samples::e1, vuk::ClearColor{0.f, 0.f, 0.f, 1.f});
-	rg.attach_managed("ssao_blurred", vuk::Format::eR16Sfloat, vuk::Dimension2D::absolute(width, height), vuk::Samples::e1,
-					  vuk::ClearColor{0.f, 0.f, 0.f, 1.f});
+	rg.attach_managed("ssao", vuk::Format::eR16Sfloat, vuk::Dimension2D::absolute(m_width, m_height), vuk::Samples::e1, vuk::ClearColor{0.f, 0.f, 0.f, 1.f});
+	rg.attach_managed(
+		"ssao_blurred", vuk::Format::eR16Sfloat, vuk::Dimension2D::absolute(m_width, m_height), vuk::Samples::e1, vuk::ClearColor{0.f, 0.f, 0.f, 1.f});
 }

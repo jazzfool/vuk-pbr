@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_definitions(-DGLM_FORCE_RADIANS -DGLM_FORCE_DEPTH_ZERO_TO_ONE)
+add_compile_definitions(PROJECT_ABSOLUTE_PATH="${CMAKE_CURRENT_SOURCE_DIR}")
 
 set(Source
 
@@ -19,6 +20,7 @@ set(Source
     Source/Scene.cpp
     Source/Frustum.cpp
     Source/Perspective.cpp
+    Source/PipelineStore.cpp
     
     Source/GfxParts/CascadedShadows.cpp
     Source/GfxParts/SSAO.cpp
@@ -66,6 +68,7 @@ set(Resources
     Resources/Textures/rust_ao.jpg
     
     Resources/Textures/forest_slope_1k.hdr
+    Resources/Textures/kloppenheim_2k.hdr
     Resources/Textures/random_normal.jpg
     Resources/Textures/flat_normal.png
 
@@ -93,3 +96,4 @@ add_subdirectory(ThirdParty/tinyobjloader)
 
 target_link_libraries(vukpbr PRIVATE VPBR::Resources vuk glfw spdlog vk-bootstrap glm EnTT tinyobjloader)
 target_include_directories(vukpbr PRIVATE ThirdParty/stb)
+target_compile_features(vukpbr PRIVATE cxx_std_20)

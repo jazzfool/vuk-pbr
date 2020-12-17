@@ -50,10 +50,10 @@ vuk::Texture load_mipmapped_texture(std::string_view path, vuk::PerThreadContext
 	return tex;
 }
 
-vuk::Texture load_cubemap_texture(std::string_view path, vuk::PerThreadContext& ptc) {
+vuk::Texture load_cubemap_texture(std::string_view path, vuk::PerThreadContext& ptc, bool flip) {
 	auto resource = get_resource(path);
 	i32 x, y, chans;
-	stbi_set_flip_vertically_on_load(true);
+	stbi_set_flip_vertically_on_load(flip);
 	auto img = stbi_loadf_from_memory(resource.data, resource.size, &x, &y, &chans, STBI_rgb_alpha);
 	stbi_set_flip_vertically_on_load(false);
 	if (img == nullptr) {

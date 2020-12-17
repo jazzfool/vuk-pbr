@@ -12,4 +12,5 @@ UseTab: Always
 AllowShortFunctionsOnASingleLine: false
 SortIncludes: false
 PointerAlignment: Left
+AlignAfterOpenBracket: DontAlign
 ...

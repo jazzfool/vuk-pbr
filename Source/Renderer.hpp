@@ -4,6 +4,8 @@
 #include "Mesh.hpp"
 #include "Scene.hpp"
 #include "Material.hpp"
+#include "Uniforms.hpp"
+#include "PipelineStore.hpp"
 #include "GfxParts/CascadedShadows.hpp"
 #include "GfxParts/SSAO.hpp"
 #include "GfxParts/GBuffer.hpp"
@@ -17,6 +19,8 @@
 
 class Renderer {
   public:
+	Renderer();
+
 	void init(struct Context& ctxt);
 
 	void update();
@@ -29,11 +33,14 @@ class Renderer {
 
 	struct Context* m_ctxt;
 
+	PipelineStore m_pipe_store;
+	UniformStore m_uniforms;
+
 	Scene m_scene;
 	SceneRenderer m_scene_renderer;
 
 	CascadedShadowRenderPass m_cascaded_shadows;
-	SSAODepthPass m_ssao;
+	SSAOPass m_ssao;
 	GBufferPass m_gbuffer;
 	VolumetricLightPass m_volumetric_light;
 	AtmosphericSkyCubemap m_atmosphere;
@@ -65,12 +72,18 @@ class Renderer {
 };
 
 struct RenderInfo {
-	glm::vec3 light_direction;
+	UniformStore* uniforms;
+
 	Perspective cam_proj;
 	glm::mat4 cam_view;
 	glm::vec3 cam_pos;
 	glm::vec3 cam_forward;
 	glm::vec3 cam_up;
+
+	u32 window_width;
+	u32 window_height;
+
+	glm::vec3 light_direction;
 	vuk::ImageView shadow_map;
 	std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> cascades;
 };

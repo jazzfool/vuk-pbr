@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GraphicsPass.hpp"
 #include "../Types.hpp"
 #include "../Perspective.hpp"
 
@@ -18,18 +19,16 @@ namespace vuk {
 class PerThreadContext;
 }
 
-class SSAODepthPass {
+class SSAOPass : public GraphicsPass {
   public:
 	static constexpr u16 KERNEL_SIZE = 64;
 
-	static void setup(struct Context& ctxt);
-
-	void init(vuk::PerThreadContext& ptc);
-	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const struct RenderInfo& info);
-
-	u32 width, height;
+	void init(vuk::PerThreadContext& ptc, struct Context& ctxt, struct UniformStore& uniforms, class PipelineStore& ps) override;
+	void prep(vuk::PerThreadContext& ptc, struct Context& ctxt, struct RenderInfo& info) override;
+	void render(vuk::PerThreadContext& ptc, struct Context& ctxt, vuk::RenderGraph& rg, const class SceneRenderer& renderer, struct RenderInfo& info) override;
 
   private:
+	u32 m_width, m_height;
 	vuk::Texture m_random_normal;
 	std::array<glm::vec3, KERNEL_SIZE> m_kernel;
 };

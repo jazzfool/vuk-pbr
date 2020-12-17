@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GraphicsPass.hpp"
 #include "../Types.hpp"
 #include "../Perspective.hpp"
 
@@ -17,17 +18,15 @@ struct RenderGraph;
 class CommandBuffer;
 } // namespace vuk
 
-class GBufferPass {
+class GBufferPass : public GraphicsPass {
   public:
-	static void setup(struct Context& ctxt);
+	void debug_position(vuk::CommandBuffer& cbuf);
+	void debug_normal(vuk::CommandBuffer& cbuf);
 
-	static void debug_position(vuk::CommandBuffer& cbuf);
-	static void debug_normal(vuk::CommandBuffer& cbuf);
-
-	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer, const struct RenderInfo& info);
-
-	u32 width, height;
+	void init(vuk::PerThreadContext& ptc, struct Context& ctxt, struct UniformStore& uniforms, class PipelineStore& ps) override;
+	void prep(vuk::PerThreadContext& ptc, struct Context& ctxt, struct RenderInfo& info) override;
+	void render(vuk::PerThreadContext& ptc, struct Context& ctxt, vuk::RenderGraph& rg, const class SceneRenderer& renderer, struct RenderInfo& info) override;
 
   private:
-	vuk::Buffer m_skybox_buffer;
+	u32 m_width, m_height;
 };

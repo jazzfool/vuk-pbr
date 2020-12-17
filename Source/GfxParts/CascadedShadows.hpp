@@ -2,6 +2,7 @@
 
 #include "../Types.hpp"
 #include "../Perspective.hpp"
+#include "GraphicsPass.hpp"
 
 #include <vuk/RenderGraph.hpp>
 #include <glm/mat4x4.hpp>
@@ -13,7 +14,7 @@
 	This reduces the aliasing that comes with regular shadow maps.
 */
 
-class CascadedShadowRenderPass {
+class CascadedShadowRenderPass : public GraphicsPass {
   public:
 	static constexpr u8 SHADOW_MAP_CASCADE_COUNT = 4;
 	static constexpr u32 DIMENSION = 4096;
@@ -23,14 +24,13 @@ class CascadedShadowRenderPass {
 		glm::mat4 view_proj_mat;
 	};
 
-	static void setup(struct Context& ctxt);
-
 	CascadedShadowRenderPass();
 
-	void init(vuk::PerThreadContext& ptc, struct Context& ctxt);
 	void debug(vuk::CommandBuffer& cbuf, u8 cascade);
 
-	void build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const class SceneRenderer& renderer, const struct RenderInfo& info);
+	void init(vuk::PerThreadContext& ptc, struct Context& ctxt, struct UniformStore& uniforms, class PipelineStore& ps) override;
+	void prep(vuk::PerThreadContext& ptc, struct Context& ctxt, struct RenderInfo& info) override;
+	void render(vuk::PerThreadContext& ptc, struct Context& ctxt, vuk::RenderGraph& rg, const class SceneRenderer& renderer, struct RenderInfo& info) override;
 
 	std::array<CascadeInfo, SHADOW_MAP_CASCADE_COUNT> compute_cascades(const struct RenderInfo& info);
 	vuk::ImageView shadow_map_view() const;

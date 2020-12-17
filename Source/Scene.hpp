@@ -25,7 +25,7 @@ class SceneRenderer {
   public:
 	static SceneRenderer create(struct Context& ctxt, Scene& scene);
 
-	void update(vuk::PerThreadContext& ptc, Scene& scene, const entt::view<entt::exclude_t<>, MeshComponent, TransformComponent>& scene_view);
+	void update(vuk::PerThreadContext& ptc, Scene& scene);
 	void render(vuk::CommandBuffer& out_cbuf, std::function<vuk::Packed(const MeshComponent&, const vuk::Buffer&)> binder) const;
 
 	Scene& scene();

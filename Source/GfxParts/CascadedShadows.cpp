@@ -9,59 +9,7 @@
 #include <vuk/CommandBuffer.hpp>
 #include <limits>
 
-void CascadedShadowRenderPass::setup(Context& ctxt) {
-	vuk::PipelineBaseCreateInfo pipeline;
-	pipeline.add_shader(get_resource_string("Resources/Shaders/depth_only.vert"), "depth_only.vert");
-	pipeline.add_shader(get_resource_string("Resources/Shaders/depth_only.frag"), "depth_only.frag");
-	pipeline.depth_stencil_state.depthCompareOp = vuk::CompareOp::eLessOrEqual;
-	pipeline.rasterization_state.depthClampEnable = VK_TRUE;
-	pipeline.rasterization_state.cullMode = vuk::CullModeFlagBits::eFront;
-	ctxt.vuk_context->create_named_pipeline("depth_only", pipeline);
-
-	vuk::PipelineBaseCreateInfo debug;
-	debug.add_shader(get_resource_string("Resources/Shaders/debug_shadow_map.vert"), "debug_shadow_map.vert");
-	debug.add_shader(get_resource_string("Resources/Shaders/debug_shadow_map.frag"), "debug_shadow_map.frag");
-	ctxt.vuk_context->create_named_pipeline("debug_shadow_map", debug);
-}
-
-void CascadedShadowRenderPass::init(vuk::PerThreadContext& ptc, Context& ctxt) {
-	m_shadow_map = ctxt.vuk_context->allocate_texture(
-		vuk::ImageCreateInfo{.imageType = vuk::ImageType::e2D,
-							 .format = vuk::Format::eD32Sfloat,
-							 .extent = vuk::Extent3D{CascadedShadowRenderPass::DIMENSION, CascadedShadowRenderPass::DIMENSION, 1},
-							 .mipLevels = 1,
-							 .arrayLayers = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT,
-							 .samples = vuk::SampleCountFlagBits::e1,
-							 .tiling = vuk::ImageTiling::eOptimal,
-							 .usage = vuk::ImageUsageFlagBits::eSampled | vuk::ImageUsageFlagBits::eDepthStencilAttachment,
-							 .sharingMode = vuk::SharingMode::eExclusive});
-
-	m_shadow_map_view = ptc.create_image_view(
-		vuk::ImageViewCreateInfo{.image = *m_shadow_map.image,
-								 .viewType = vuk::ImageViewType::e2DArray,
-								 .format = vuk::Format::eD32Sfloat,
-								 .subresourceRange = vuk::ImageSubresourceRange{.aspectMask = vuk::ImageAspectFlagBits::eDepth,
-																				.baseMipLevel = 0,
-																				.levelCount = 1,
-																				.baseArrayLayer = 0,
-																				.layerCount = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT}});
-
-	for (u8 i = 0; i < SHADOW_MAP_CASCADE_COUNT; ++i) {
-		std::string name = "depth_map_layer_";
-		name = name.append(std::to_string(i));
-		m_attachment_names.push_back(name);
-
-		m_image_views.push_back(ptc.create_image_view(vuk::ImageViewCreateInfo{.image = *m_shadow_map.image,
-																			   .viewType = vuk::ImageViewType::e2DArray,
-																			   .format = vuk::Format::eD32Sfloat,
-																			   .subresourceRange = vuk::ImageSubresourceRange{
-																				   .aspectMask = vuk::ImageAspectFlagBits::eDepth,
-																				   .baseMipLevel = 0,
-																				   .levelCount = 1,
-																				   .baseArrayLayer = static_cast<u32>(i),
-																				   .layerCount = 1,
-																			   }}));
-	}
+CascadedShadowRenderPass::CascadedShadowRenderPass() : cascade_split_lambda{0.95f} {
 }
 
 void CascadedShadowRenderPass::debug(vuk::CommandBuffer& cbuf, u8 cascade) {
@@ -73,10 +21,67 @@ void CascadedShadowRenderPass::debug(vuk::CommandBuffer& cbuf, u8 cascade) {
 		.draw(3, 1, 0, 0);
 }
 
-CascadedShadowRenderPass::CascadedShadowRenderPass() : cascade_split_lambda{0.95f} {
+void CascadedShadowRenderPass::init(vuk::PerThreadContext& ptc, struct Context& ctxt, struct UniformStore& uniforms, PipelineStore& ps) {
+	vuk::PipelineBaseCreateInfo depth_pipe;
+	depth_pipe.depth_stencil_state.depthCompareOp = vuk::CompareOp::eLessOrEqual;
+	depth_pipe.rasterization_state.depthClampEnable = VK_TRUE;
+	depth_pipe.rasterization_state.cullMode = vuk::CullModeFlagBits::eFront;
+	ps.add("depth_only", "depth_only.vert", "depth_only.frag", depth_pipe);
+
+	ps.add("debug_shadow_map", "debug_shadow_map.vert", "debug_shadow_map.frag");
+
+	m_shadow_map = ctxt.vuk_context->allocate_texture(vuk::ImageCreateInfo{
+		.imageType = vuk::ImageType::e2D,
+		.format = vuk::Format::eD32Sfloat,
+		.extent = vuk::Extent3D{CascadedShadowRenderPass::DIMENSION, CascadedShadowRenderPass::DIMENSION, 1},
+		.mipLevels = 1,
+		.arrayLayers = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT,
+		.samples = vuk::SampleCountFlagBits::e1,
+		.tiling = vuk::ImageTiling::eOptimal,
+		.usage = vuk::ImageUsageFlagBits::eSampled | vuk::ImageUsageFlagBits::eDepthStencilAttachment,
+		.sharingMode = vuk::SharingMode::eExclusive,
+	});
+
+	m_shadow_map_view = ptc.create_image_view(vuk::ImageViewCreateInfo{
+		.image = *m_shadow_map.image,
+		.viewType = vuk::ImageViewType::e2DArray,
+		.format = vuk::Format::eD32Sfloat,
+		.subresourceRange =
+			vuk::ImageSubresourceRange{
+				.aspectMask = vuk::ImageAspectFlagBits::eDepth,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT,
+			},
+	});
+
+	for (u8 i = 0; i < SHADOW_MAP_CASCADE_COUNT; ++i) {
+		std::string name = "depth_map_layer_";
+		name = name.append(std::to_string(i));
+		m_attachment_names.push_back(name);
+
+		m_image_views.push_back(ptc.create_image_view(vuk::ImageViewCreateInfo{
+			.image = *m_shadow_map.image,
+			.viewType = vuk::ImageViewType::e2DArray,
+			.format = vuk::Format::eD32Sfloat,
+			.subresourceRange =
+				vuk::ImageSubresourceRange{
+					.aspectMask = vuk::ImageAspectFlagBits::eDepth,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = static_cast<u32>(i),
+					.layerCount = 1,
+				},
+		}));
+	}
 }
 
-void CascadedShadowRenderPass::build(vuk::PerThreadContext& ptc, vuk::RenderGraph& rg, const SceneRenderer& renderer, const RenderInfo& info) {
+void CascadedShadowRenderPass::prep(vuk::PerThreadContext& ptc, struct Context& ctxt, struct RenderInfo& info) {
+}
+
+void CascadedShadowRenderPass::render(
+	vuk::PerThreadContext& ptc, struct Context& ctxt, vuk::RenderGraph& rg, const class SceneRenderer& renderer, struct RenderInfo& info) {
 	const auto cascades = compute_cascades(info);
 	std::vector<glm::mat4> cascade_mats;
 	cascade_mats.reserve(cascades.size());
@@ -92,28 +97,34 @@ void CascadedShadowRenderPass::build(vuk::PerThreadContext& ptc, vuk::RenderGrap
 	for (u8 i = 0; i < SHADOW_MAP_CASCADE_COUNT; ++i) {
 		const vuk::Resource layer_resource{m_attachment_names[i], vuk::Resource::Type::eImage, vuk::eDepthStencilRW};
 
-		rg.add_pass(vuk::Pass{.resources = {layer_resource}, .execute = [=](vuk::CommandBuffer& cbuf) {
-								  cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, DIMENSION, DIMENSION))
-									  .set_scissor(0, vuk::Rect2D::absolute(0, 0, DIMENSION, DIMENSION))
-									  .set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
-									  .bind_graphics_pipeline("depth_only")
-									  .bind_uniform_buffer(0, 0, ubo)
-									  .push_constants(vuk::ShaderStageFlagBits::eVertex, 0, static_cast<u32>(i));
+		rg.add_pass(vuk::Pass{
+			.resources = {layer_resource},
+			.execute =
+				[=](vuk::CommandBuffer& cbuf) {
+					cbuf.set_viewport(0, vuk::Rect2D::absolute(0, 0, DIMENSION, DIMENSION))
+						.set_scissor(0, vuk::Rect2D::absolute(0, 0, DIMENSION, DIMENSION))
+						.set_primitive_topology(vuk::PrimitiveTopology::eTriangleList)
+						.bind_graphics_pipeline("depth_only")
+						.bind_uniform_buffer(0, 0, ubo)
+						.push_constants(vuk::ShaderStageFlagBits::eVertex, 0, static_cast<u32>(i));
 
-								  renderer.render(cbuf, [&](const MeshComponent& mesh, const vuk::Buffer& transform) {
-									  cbuf.bind_uniform_buffer(1, 0, transform);
-									  return vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32Sfloat}};
-								  });
-							  }});
+					renderer.render(cbuf, [&](const MeshComponent& mesh, const vuk::Buffer& transform) {
+						cbuf.bind_uniform_buffer(1, 0, transform);
+						return vuk::Packed{vuk::Format::eR32G32B32Sfloat, vuk::Format::eR32G32B32Sfloat, vuk::Ignore{vuk::Format::eR32G32Sfloat}};
+					});
+				},
+		});
 
 		rg.attach_image(m_attachment_names[i],
-						vuk::ImageAttachment{.image = *m_shadow_map.image,
-											 .image_view = *m_image_views[i],
-											 .extent = vuk::Extent2D{DIMENSION, DIMENSION},
-											 .format = vuk::Format::eD32Sfloat,
-											 .sample_count = vuk::Samples::e1,
-											 .clear_value = vuk::ClearDepthStencil{1.f, 0}},
-						vuk::Access::eClear, vuk::Access::eFragmentSampled);
+			vuk::ImageAttachment{
+				.image = *m_shadow_map.image,
+				.image_view = *m_image_views[i],
+				.extent = vuk::Extent2D{DIMENSION, DIMENSION},
+				.format = vuk::Format::eD32Sfloat,
+				.sample_count = vuk::Samples::e1,
+				.clear_value = vuk::ClearDepthStencil{1.f, 0},
+			},
+			vuk::Access::eClear, vuk::Access::eFragmentSampled);
 	}
 }
 
@@ -122,8 +133,8 @@ vuk::ImageView CascadedShadowRenderPass::shadow_map_view() const {
 }
 
 // https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmappingcascade/shadowmappingcascade.cpp
-std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT>
-CascadedShadowRenderPass::compute_cascades(const RenderInfo& info) {
+std::array<CascadedShadowRenderPass::CascadeInfo, CascadedShadowRenderPass::SHADOW_MAP_CASCADE_COUNT> CascadedShadowRenderPass::compute_cascades(
+	const RenderInfo& info) {
 	std::array<CascadeInfo, SHADOW_MAP_CASCADE_COUNT> cascades;
 
 	f32 cascade_splits[SHADOW_MAP_CASCADE_COUNT];
@@ -154,8 +165,14 @@ CascadedShadowRenderPass::compute_cascades(const RenderInfo& info) {
 		f32 split_dist = cascade_splits[i];
 
 		glm::vec3 frustum_corners[8] = {
-			glm::vec3(-1.0f, 1.0f, -1.0f), glm::vec3(1.0f, 1.0f, -1.0f), glm::vec3(1.0f, -1.0f, -1.0f), glm::vec3(-1.0f, -1.0f, -1.0f),
-			glm::vec3(-1.0f, 1.0f, 1.0f),  glm::vec3(1.0f, 1.0f, 1.0f),	 glm::vec3(1.0f, -1.0f, 1.0f),	glm::vec3(-1.0f, -1.0f, 1.0f),
+			glm::vec3(-1.0f, 1.0f, -1.0f),
+			glm::vec3(1.0f, 1.0f, -1.0f),
+			glm::vec3(1.0f, -1.0f, -1.0f),
+			glm::vec3(-1.0f, -1.0f, -1.0f),
+			glm::vec3(-1.0f, 1.0f, 1.0f),
+			glm::vec3(1.0f, 1.0f, 1.0f),
+			glm::vec3(1.0f, -1.0f, 1.0f),
+			glm::vec3(-1.0f, -1.0f, 1.0f),
 		};
 
 		// Project frustum corners into world space
